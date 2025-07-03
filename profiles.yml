@@ -1,0 +1,37 @@
+# profiles.yml
+# This file contains the database configurations for dbt
+# Place this file in ~/.dbt/ directory
+
+wh_transform:  # This should match your dbt_project.yml name
+  target: dev  # Default target environment
+  outputs:
+    dev:  # Development environment
+      type: synapse
+      driver: 'ODBC Driver 18 for SQL Server'  # or 'ODBC Driver 17 for SQL Server'
+      server: 'tcp:ati-cdw-synapse.sql.azuresynapse.net'  # Replace with your Synapse workspace URL
+      port: 1433
+      database: 'ati_datawarehouse'  # Replace with your database name
+      schema: 'dbo'  # Default schema
+      dwh_user: 'dwh_user'  # Replace with your dwh_user
+      password: 'YourStrongP@ssw0rd!'  # Replace with your password
+      authentication: 'sql'
+      encrypt: true
+      trust_cert: true
+      threads: 4
+      timeout: 300
+      
+    prod:  # Production environment
+      type: synapse
+      driver: 'ODBC Driver 18 for SQL Server'
+      server: 'tcp:ati-cdw-synapse.sql.azuresynapse.net'
+      port: 1433
+      database: 'ati_datawarehouse'
+      schema: 'dbo'
+      dwh_user: 'your-dwh_user'
+      password: 'YourStrongP@ssw0rd!'
+      authentication: 'sql'
+      encrypt: true
+      trust_cert: true
+      threads: 8
+      timeout: 300
+      
