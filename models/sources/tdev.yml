@@ -1,0 +1,33 @@
+version: 2
+
+sources:
+  - name: tdev
+    description: "TDEV source tables from dbo schema"
+    schema: dbo
+    tables:
+      - name: TDEVDailySummary
+        description: "TDEV Daily Summary table"
+      - name: TDEVCheckpoints
+        description: "TDEV Checkpoints table"
+      - name: TDEVTrips
+        description: "TDEV Trips table"
+      - name: TDEVSubsystemCost
+        description: "TDEV Subsystem Cost table"
+      - name: TDEVSubsystemOffset
+        description: "TDEV Subsystem Offset table"
+
+  - name: tdev_dev
+    description: "TDEV source tables from dev schema"
+    schema: dev
+    tables:
+      - name: TDEVDailySummary
+        description: "TDEV Daily Summary table"
+      - name: TDEVCheckpoints
+        description: "TDEV Checkpoints table"
+      - name: TDEVTrips
+        description: "TDEV Trips table"
+      - name: TDEVSubsystemCost
+        description: "TDEV Subsystem Cost table"
+      - name: TDEVSubsystemOffset
+        description: "TDEV Subsystem Offset table"
+
