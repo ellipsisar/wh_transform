@@ -34,4 +34,34 @@ wh_transform:  # This should match your dbt_project.yml name
       trust_cert: true
       threads: 8
       timeout: 300
+
+    raw:  # Raw environment
+      type: synapse
+      driver: 'ODBC Driver 18 for SQL Server'
+      server: 'tcp:ati-cdw-synapse.sql.azuresynapse.net'
+      port: 1433
+      database: 'ati_datawarehouse'
+      schema: 'raw'
+      dwh_user: 'your-dwh_user'
+      password: 'YourStrongP@ssw0rd!'
+      authentication: 'sql'
+      encrypt: true
+      trust_cert: true
+      threads: 8
+      timeout: 300
+
+    dwh:  # Data Warehouse environment
+      type: synapse
+      driver: 'ODBC Driver 18 for SQL Server'
+      server: 'tcp:ati-cdw-synapse.sql.azuresynapse.net'
+      port: 1433
+      database: 'ati_datawarehouse'
+      schema: 'dwh'
+      dwh_user: 'your-dwh_user'
+      password: 'YourStrongP@ssw0rd!'
+      authentication: 'sql'
+      encrypt: true
+      trust_cert: true
+      threads: 8
+      timeout: 300
       
