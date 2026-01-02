@@ -8,5 +8,6 @@ sources:
       - name: fleet
       - name: vehicle_day
       - name: trip
+      - name: vwRoutes
 
 
