@@ -3,11 +3,12 @@ version: 2
 sources:
   - name: gtfs
     description: ""
-    schema: raw
+    schema: dbo
     tables:
       - name: gtfs_trips
       - name: gtfs_stop_times
       - name: gtfs_routes
       - name: .gtfs_calendar_dates
+
 
 
