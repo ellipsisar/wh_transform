@@ -10,5 +10,6 @@ sources:
       - name: trip
       - name: vwRoutes
       - name: visit
+      - name: trip_sch_match
 
 
