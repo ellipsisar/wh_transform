@@ -18,15 +18,49 @@ SELECT
         T.route_id AS Route,
         F.operator_id AS OperatorFleetId,
         count(distinct T.trip_key) AS OperatedTripsCount,
-        sum(CASE WHEN TM.sch_trip_id IS NULL THEN 1 ELSE 0 END) as CancelledTripsCount,
-        sum(CASE WHEN T.Compliant='f' THEN 1 ELSE 0 END) as DelayedTripsCount,
-        sum(CASE WHEN T.Compliant='t' THEN 1 ELSE 0 END) as OnTimeDepartureCount,
-        0 as OnTimeArrivalCount,
-        sum(CASE WHEN T.Compliant='f' THEN 1 ELSE 0 END) as DelayedDepartureCount,
-        0 as DelayedArrivalCount,
+        count(distinct CASE WHEN TM.sch_trip_id IS NULL THEN T.trip_key ELSE NULL END) as CancelledTripsCount,
+        count(distinct CASE 
+            WHEN TM.sch_trip_id IS NOT NULL 
+                AND (DATEDIFF(minute, TM.arrival_planned, TM.arrival_real) >= 5 
+                    OR DATEDIFF(minute, TM.departure_planned, TM.departure_real) >= 5)
+            THEN TM.trip_key
+            ELSE NULL 
+        END) as DelayedTripsCount,
+        count(distinct CASE 
+            WHEN TM.sch_trip_id IS NOT NULL 
+                AND DATEDIFF(minute, TM.departure_planned, TM.departure_real) < 5
+            THEN TM.trip_key
+            ELSE NULL 
+        END) as OnTimeDepartureCount,
+        count(distinct CASE 
+            WHEN TM.sch_trip_id IS NOT NULL 
+                AND DATEDIFF(minute, TM.arrival_planned, TM.arrival_real) < 5
+            THEN TM.trip_key
+            ELSE NULL 
+        END) as OnTimeArrivalCount,
+        count(distinct CASE 
+            WHEN TM.sch_trip_id IS NOT NULL 
+                AND DATEDIFF(minute, TM.departure_planned, TM.departure_real) >= 5
+            THEN TM.trip_key
+            ELSE NULL 
+        END) as DelayedDepartureCount,
+        count(distinct CASE 
+            WHEN TM.sch_trip_id IS NOT NULL 
+                AND DATEDIFF(minute, TM.arrival_planned, TM.arrival_real) >= 5
+            THEN TM.trip_key
+            ELSE NULL 
+        END) as DelayedArrivalCount,
         count(distinct vehicle_id) VehiclesOperatedCount,
         MAX(TotalVehiclesCount) TotalVehiclesCount,
-        0 as AverageDelayMinutes
+        AVG(CASE 
+            WHEN TM.sch_trip_id IS NOT NULL 
+            THEN CASE 
+                WHEN DATEDIFF(minute, TM.arrival_planned, TM.arrival_real) > DATEDIFF(minute, TM.departure_planned, TM.departure_real)
+                THEN DATEDIFF(minute, TM.arrival_planned, TM.arrival_real)
+                ELSE DATEDIFF(minute, TM.departure_planned, TM.departure_real)
+            END
+            ELSE NULL 
+        END) as AverageDelayMinutes
 
 FROM {{ source('korbato', 'trip') }} T
 INNER JOIN {{ source('korbato', 'vehicle_day') }} V
