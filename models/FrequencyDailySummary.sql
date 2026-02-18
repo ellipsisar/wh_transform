@@ -18,6 +18,7 @@ SELECT
         T.route_id AS Route,
         F.operator_id AS OperatorFleetId,
         count(distinct T.trip_key) AS OperatedTripsCount,
+        count(distinct TM.trip_key) AS PlannedTripsCount,
         count(distinct CASE WHEN TM.sch_trip_id IS NULL THEN T.trip_key ELSE NULL END) as CancelledTripsCount,
         count(distinct CASE 
             WHEN TM.sch_trip_id IS NOT NULL 
@@ -50,6 +51,7 @@ SELECT
             THEN TM.trip_key
             ELSE NULL 
         END) as DelayedArrivalCount,
+        count(distinct CASE WHEN TM.sch_trip_id IS NOT NULL THEN TM.trip_key ELSE NULL END) as ExecutedPlannedTripsCount,
         count(distinct vehicle_id) VehiclesOperatedCount,
         MAX(TotalVehiclesCount) TotalVehiclesCount,
         AVG(CASE 
