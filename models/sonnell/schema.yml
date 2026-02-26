@@ -1,0 +1,87 @@
+version: 2
+
+models:
+  - name: stg_sonnell_daily_summary
+    description: >
+      Staging view over SonnellDailySummary. Renames Subsystem->GroupId,
+      TripCount->NumTrips and converts RevenueSeconds->RevenueHours (÷3600)
+      and RevenueMeters->RevenueMiles (÷1609.34).
+    columns:
+      - name: Id
+        description: "Source primary key from SonnellDailySummary"
+      - name: ServiceDate
+        tests:
+          - not_null
+      - name: GroupId
+        description: "Subsystem identifier (renamed from Subsystem)"
+      - name: Version
+        tests:
+          - not_null
+
+  - name: stg_sonnell_rates
+    description: >
+      Staging view over SonnellRates. Pass-through with no transformations.
+    columns:
+      - name: GroupId
+        tests:
+          - not_null
+
+  - name: fct_sonnell_subsystem_cost
+    description: >
+      Fact table for Sonnell subsystem costs with SCD Type 2 versioning.
+      Grain is DailySummaryId (one row per SonnellDailySummary record).
+      Versioning operates at the ServiceDate level: when a new Version arrives,
+      all prior records for that ServiceDate are marked CurrentVersion=0.
+      Supports three execution modes: daily incremental, monthly reprocess, and full refresh.
+    columns:
+      - name: Id
+        description: "Mirrors DailySummaryId in daily/full-refresh mode; NULL in reprocess mode (matches SP2)"
+      - name: DailySummaryId
+        description: "FK to SonnellDailySummary.Id — unique per row"
+        tests:
+          - not_null
+          - unique
+      - name: ServiceDate
+        description: "Date of service; versioning granularity"
+        tests:
+          - not_null
+      - name: Year
+        tests:
+          - not_null
+      - name: Month
+        tests:
+          - not_null
+      - name: GroupId
+        description: "Subsystem identifier; join key to SonnellRates"
+        tests:
+          - not_null
+      - name: RouteId
+        tests:
+          - not_null
+      - name: Version
+        description: "Batch version from SonnellDailySummary"
+        tests:
+          - not_null
+      - name: CurrentVersion
+        description: "1 = active version, 0 = superseded"
+        tests:
+          - not_null
+          - accepted_values:
+              values: [0, 1]
+              quote: false
+      - name: RevenueHours
+        description: "RevenueSeconds / 3600.0, ROUND 2 decimals"
+      - name: RevenueMiles
+        description: "RevenueMeters / 1609.34, ROUND 2 decimals"
+      - name: EffectiveRateMiles
+        description: "Rate per mile from SonnellRates (by GroupId + date range)"
+      - name: EffectiveRateHours
+        description: "Rate per hour from SonnellRates (by GroupId + date range)"
+      - name: RevenueMilesAmount
+        description: "ROUND(RevenueMiles * EffectiveRateMiles, 2)"
+      - name: RevenueHoursAmount
+        description: "ROUND(RevenueHours * EffectiveRateHours, 2)"
+      - name: InvoiceId
+        description: "Invoice reference; populated downstream, NULL at insert"
+      - name: CreatedAt
+        description: "Timestamp of row insertion"

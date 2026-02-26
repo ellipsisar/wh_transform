@@ -1,0 +1,13 @@
+version: 2
+
+sources:
+  - name: sonnell
+    description: "Sonnell source tables from dbo schema"
+    schema: dbo
+    tables:
+      - name: SonnellDailySummary
+        description: "Daily summary of Sonnell subsystem revenue metrics (hours, miles, trips) by route and subsystem"
+      - name: SonnellRates
+        description: "Rate cards for Sonnell subsystems with effective date ranges"
+      - name: SonnellSubsystemCost
+        description: "Target fact table for Sonnell subsystem costs with SCD Type 2 versioning"
