@@ -3,7 +3,7 @@
         materialized='incremental',
         incremental_strategy='append',
         tags=['sonnell'],
-        alias='SonnellSubsystemCost',
+        alias='dbt_SonnellSubsystemCost',
         dist='ROUND_ROBIN',
         index='CLUSTERED COLUMNSTORE INDEX',
         pre_hook="
