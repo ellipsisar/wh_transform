@@ -3,7 +3,7 @@
         materialized='incremental',
         incremental_strategy='append',
         tags=['sonnell'],
-        alias='dbt_SonnellSubsystemCost',
+        alias='SonnellSubsystemCost',
         dist='ROUND_ROBIN',
         index='CLUSTERED COLUMNSTORE INDEX',
         pre_hook="
@@ -13,10 +13,13 @@
             FROM {{ this }} AS t
             INNER JOIN {{ source('sonnell', 'SonnellDailySummary') }} AS b
                 ON t.ServiceDate = b.ServiceDate
-            WHERE CAST(b.CreatedAt AS DATE) >= DATEADD(day, -{{ var('sonnell_lookback_days', 0) }}, CAST(GETDATE() AS DATE))
-                AND CAST(b.ServiceDate AS DATE) < DATEFROMPARTS(YEAR(GETDATE()), MONTH(GETDATE()), 1)
-                AND t.Version <> b.Version
+            WHERE t.Version <> b.Version
                 AND t.CurrentVersion = 1
+                AND NOT EXISTS (
+                    SELECT 1 FROM {{ this }} AS t2
+                    WHERE t2.ServiceDate = b.ServiceDate
+                    AND t2.Version = b.Version
+                )
             {% elif is_incremental() and var('sonnell_reprocess', false) %}
             DELETE FROM {{ this }}
             WHERE [Month] = {{ var('sonnell_reprocess_month') }}
@@ -75,9 +78,15 @@
                ServiceDate, ALL prior records for that date are marked CurrentVersion=0.
 
   EXECUTION MODES:
-    1) Daily incremental  (default)        — mirrors SP Sonnell_UpdateSubsystemCostsVersions
-    2) Monthly reprocess  (sonnell_reprocess vars) — mirrors SP Sonnell_CalculateSubsystemCostsByMonth
+    1) Daily incremental  (default)        — inserts any DailySummary not yet in target
+    2) Monthly reprocess  (sonnell_reprocess vars) — delete+insert for a specific month/year
     3) Full refresh        (--full-refresh)  — rebuilds from all DailySummary history
+
+  INCREMENTAL STRATEGY:
+    The daily mode uses NOT EXISTS (ServiceDate, Version) as the sole dedup mechanism.
+    No CreatedAt or closed-month filter is applied — this improves on the SP by handling
+    late-arriving data, missed runs, and current-month data without manual intervention.
+    The pre_hook only marks old versions when the replacement hasn't been inserted yet.
 
   RATE/AMOUNT LOGIC:
     Rates and amounts are computed inline via LEFT JOIN with SonnellRates.
@@ -173,9 +182,10 @@ WHERE MONTH(s.ServiceDate) = {{ var('sonnell_reprocess_month') }}
 
 
 {% else %}
-{# ── DAILY INCREMENTAL (SP1): new versions for closed months only.                        ── #}
+{# ── DAILY INCREMENTAL (SP1): insert any DailySummary records not yet in target.           ── #}
 {# ── pre_hook already set CurrentVersion=0 on superseded records.                          ── #}
-{# ── No IsActive filter on rates — matches SP1 exactly.                                   ── #}
+{# ── NOT EXISTS (ServiceDate, Version) is the primary dedup — no date restriction needed.  ── #}
+{# ── No IsActive filter on rates — matches SP1.                                           ── #}
 
 SELECT
     CAST(s.Id AS INT)                                                   AS Id,
@@ -201,9 +211,7 @@ FROM {{ ref('stg_sonnell_daily_summary') }} AS s
 LEFT JOIN {{ ref('stg_sonnell_rates') }} AS r
     ON s.GroupId = r.GroupId
     AND s.ServiceDate BETWEEN r.StartDate AND r.EndDate
-WHERE CAST(s.CreatedAt AS DATE) >= DATEADD(day, -{{ var('sonnell_lookback_days', 0) }}, CAST(GETDATE() AS DATE))
-    AND CAST(s.ServiceDate AS DATE) < DATEFROMPARTS(YEAR(GETDATE()), MONTH(GETDATE()), 1)
-    AND NOT EXISTS (
+WHERE NOT EXISTS (
         SELECT 1 FROM {{ this }} AS t
         WHERE t.ServiceDate = s.ServiceDate
         AND t.Version = s.Version
