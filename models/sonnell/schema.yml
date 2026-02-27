@@ -116,6 +116,80 @@ models:
       - name: CreatedAt
         description: "Timestamp of row insertion"
 
+  - name: fct_sonnell_invoice_totals
+    description: >
+      Fact table for Sonnell invoice totals with SCD Type 2 versioning.
+      Grain is (Year, Month, Subsystem, Type, Version).
+      Versioning operates at (Year, Month) level: when a new Version arrives,
+      ALL prior invoice lines for that period are marked CurrentVersion=0.
+      Produces 3 line types per month: Regular MB/TC, Regular MU per route,
+      and Offset per subsystem. Post-hooks populate InvoiceID, stats, and
+      persist the 4% offset cap audit data to SonnellOffsetApplied.
+    columns:
+      - name: Year
+        description: "Calendar year of the invoice period"
+        tests:
+          - not_null
+      - name: Month
+        description: "Calendar month of the invoice period (1-12)"
+        tests:
+          - not_null
+      - name: MonthName
+        description: "Month name (e.g. 'January')"
+      - name: Subsystem
+        description: "Subsystem identifier: 'MB', 'TC' for regular/offset; 'MU - 20', 'MU - 30' for MU routes; 'MU' for MU offset"
+        tests:
+          - not_null
+      - name: Routes
+        description: "Route identifier: '-' for MB/TC/Offset; RouteId ('20','30') for MU routes"
+      - name: Description
+        description: "Human-readable invoice line description with revenue/offset details"
+      - name: Total
+        description: "Invoice line total: TotalSubsystemCost for Regular, TotalOffset for Offset"
+      - name: OffsetPercentage
+        description: "Offset as percentage of TotalSubsystemCost (Offset lines only)"
+      - name: Type
+        description: "Invoice line type"
+        tests:
+          - not_null
+          - accepted_values:
+              values: ['Regular', 'Offset']
+      - name: RevenueMiles
+        description: "Revenue miles from cost table (MB/TC only; NULL for MU/Offset)"
+      - name: RevenueHours
+        description: "Revenue hours from cost table (MB/TC only; NULL for MU/Offset)"
+      - name: MilesRate
+        description: "Effective rate per mile from SonnellRates"
+      - name: HoursRate
+        description: "Effective rate per hour from SonnellRates"
+      - name: Checkpoints
+        description: "Total checkpoints count (Offset lines only)"
+      - name: CompliantCheckpoints
+        description: "Compliant checkpoints count (Offset lines only; populated by post_hook)"
+      - name: NonCompliantCheckpoints
+        description: "Non-compliant checkpoints count (Offset lines only; populated by post_hook)"
+      - name: CheckpointsOTP
+        description: "On-time performance percentage (Offset lines only)"
+      - name: Version
+        description: "Batch version from SonnellSubsystemOffset"
+        tests:
+          - not_null
+      - name: CurrentVersion
+        description: "1 = active version, 0 = superseded"
+        tests:
+          - not_null
+          - accepted_values:
+              values: [0, 1]
+              quote: false
+      - name: InvoiceID
+        description: "Invoice group identifier; one NEWID() per (Year, Month); populated by post_hook"
+      - name: Trips
+        description: "Number of trips (Regular lines only; populated by post_hook)"
+      - name: CreatedAt
+        description: "Timestamp of row creation (populated by post_hook)"
+      - name: UpdatedAt
+        description: "Timestamp of last update (populated by post_hook)"
+
   - name: fct_sonnell_subsystem_offset
     description: >
       Fact table for Sonnell subsystem OTP offsets (incentives/penalties) with

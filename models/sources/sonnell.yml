@@ -15,3 +15,7 @@ sources:
         description: "Checkpoint-level OTP compliance data per trip/visit with Compliant flag (t/f)"
       - name: SonnellParameters
         description: "OTP threshold ranges and incentive/offset rates per subsystem (GroupId)"
+      - name: SonnellOffsetApplied
+        description: "Audit table for the 4% offset cap rule per (Year, Month, Subsystem)"
+      - name: SonnellInvoiceTotals
+        description: "Original invoice totals table (pre-dbt); referenced for legacy compatibility"
