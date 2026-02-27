@@ -26,6 +26,36 @@ models:
         tests:
           - not_null
 
+  - name: stg_sonnell_checkpoints
+    description: >
+      Staging view over SonnellCheckpoints. Pass-through with no transformations;
+      the SPs use raw values directly.
+    columns:
+      - name: ServiceDate
+        tests:
+          - not_null
+      - name: Subsystem
+        description: "Subsystem identifier; maps to SonnellSubsystemCost.GroupId and SonnellParameters.GroupId"
+      - name: Compliant
+        description: "OTP compliance flag: 't' = compliant, 'f' = non-compliant"
+      - name: Version
+        tests:
+          - not_null
+
+  - name: stg_sonnell_parameters
+    description: >
+      Staging view over SonnellParameters. Pass-through with no transformations.
+    columns:
+      - name: GroupId
+        tests:
+          - not_null
+      - name: CheckPointOTPMin
+        description: "Lower bound (exclusive) of the OTP range for this rate"
+      - name: CheckPointOTPMax
+        description: "Upper bound (inclusive) of the OTP range for this rate"
+      - name: IncentivesOffsets
+        description: "Incentive/penalty rate applied when OTP falls within the range"
+
   - name: fct_sonnell_subsystem_cost
     description: >
       Fact table for Sonnell subsystem costs with SCD Type 2 versioning.
@@ -85,3 +115,52 @@ models:
         description: "Invoice reference; populated downstream, NULL at insert"
       - name: CreatedAt
         description: "Timestamp of row insertion"
+
+  - name: fct_sonnell_subsystem_offset
+    description: >
+      Fact table for Sonnell subsystem OTP offsets (incentives/penalties) with
+      SCD Type 2 versioning. Grain is (Year, Month, Subsystem, Version).
+      Versioning operates at the (Year, Month, Subsystem) level: when a new
+      Version arrives, all prior records are marked CurrentVersion=0.
+      Supports three execution modes: daily incremental, monthly reprocess,
+      and full refresh.
+    columns:
+      - name: Year
+        description: "Calendar year of the service period"
+        tests:
+          - not_null
+      - name: Month
+        description: "Calendar month of the service period (1-12)"
+        tests:
+          - not_null
+      - name: Subsystem
+        description: "Subsystem identifier; join key to SonnellSubsystemCost.GroupId and SonnellParameters.GroupId"
+        tests:
+          - not_null
+      - name: TotalCheckpoints
+        description: "COUNT(*) of SonnellCheckpoints for this (Year, Month, Subsystem, Version)"
+      - name: TotalCompliant1
+        description: "Count of checkpoints where Compliant = 't'"
+      - name: TotalCompliant0
+        description: "Count of checkpoints where Compliant = 'f'"
+      - name: OnTimePerformance
+        description: "OTP percentage: ROUND(TotalCompliant1 * 100.0 / TotalCheckpoints, 2)"
+      - name: EffectiveRate
+        description: "Incentive/penalty rate from SonnellParameters based on OTP range (min, max]"
+      - name: TotalSubsystemCost
+        description: "Sum of RevenueMilesAmount + RevenueHoursAmount from fct_sonnell_subsystem_cost"
+      - name: TotalOffset
+        description: "ROUND(TotalSubsystemCost * EffectiveRate, 2)"
+      - name: InvoiceId
+        description: "Invoice reference; populated downstream, NULL at insert"
+      - name: Version
+        description: "Batch version from SonnellCheckpoints"
+        tests:
+          - not_null
+      - name: CurrentVersion
+        description: "1 = active version, 0 = superseded"
+        tests:
+          - not_null
+          - accepted_values:
+              values: [0, 1]
+              quote: false

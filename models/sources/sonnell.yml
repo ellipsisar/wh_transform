@@ -11,3 +11,7 @@ sources:
         description: "Rate cards for Sonnell subsystems with effective date ranges"
       - name: SonnellSubsystemCost
         description: "Target fact table for Sonnell subsystem costs with SCD Type 2 versioning"
+      - name: SonnellCheckpoints
+        description: "Checkpoint-level OTP compliance data per trip/visit with Compliant flag (t/f)"
+      - name: SonnellParameters
+        description: "OTP threshold ranges and incentive/offset rates per subsystem (GroupId)"
