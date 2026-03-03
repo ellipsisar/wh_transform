@@ -242,6 +242,23 @@
                 AND inv.[Month] = {{ var('sonnell_invoice_reprocess_month') }}
                 AND inv.[Year] = {{ var('sonnell_invoice_reprocess_year') }}
             {% endif %}",
+            "{% if is_incremental() and var('sonnell_invoice_reprocess', false) %}
+            UPDATE inv
+            SET inv.RevenueMiles = agg.TotalRevenueMiles, inv.RevenueHours = agg.TotalRevenueHours
+            FROM {{ this }} AS inv
+            INNER JOIN (
+                SELECT [Year], [Month], RouteId,
+                       SUM(RevenueMiles) AS TotalRevenueMiles, SUM(RevenueHours) AS TotalRevenueHours
+                FROM {{ ref('fct_sonnell_subsystem_cost') }}
+                WHERE RouteId IN ('E20', '20', 'E30', '30')
+                GROUP BY [Year], [Month], RouteId
+            ) AS agg ON inv.[Year] = agg.[Year] AND inv.[Month] = agg.[Month]
+                AND inv.Routes = agg.RouteId
+            WHERE inv.[Type] = 'Regular'
+                AND inv.Routes IN ('E20', '20', 'E30', '30')
+                AND inv.[Month] = {{ var('sonnell_invoice_reprocess_month') }}
+                AND inv.[Year] = {{ var('sonnell_invoice_reprocess_year') }}
+            {% endif %}",
             "{% if is_incremental() and not var('sonnell_invoice_reprocess', false) %}
             UPDATE inv
             SET inv.CompliantCheckpoints = o.TotalCompliant1,
@@ -412,8 +429,8 @@ all_invoice AS (
         CAST(P2.RevenueMilesAmount + P2.RevenueHoursAmount AS DECIMAL(10,2)),
         CAST(NULL AS DECIMAL(10,2)),
         CAST('Regular' AS NVARCHAR(50)),
-        CAST(P2.RevenueMiles AS DECIMAL(10,2)),
-        CAST(P2.RevenueHours AS DECIMAL(10,2)),
+        CAST(NULL AS DECIMAL(10,2)),
+        CAST(NULL AS DECIMAL(10,2)),
         CAST(P2.EffectiveRateMiles AS DECIMAL(10,2)),
         CAST(P2.EffectiveRateHours AS DECIMAL(10,2)),
         CAST(NULL AS INT),
@@ -591,8 +608,8 @@ SELECT
     CAST(P2.RevenueMilesAmount + P2.RevenueHoursAmount AS DECIMAL(10,2)),
     CAST(NULL AS DECIMAL(10,2)),
     CAST('Regular' AS NVARCHAR(50)),
-    CAST(P2.RevenueMiles AS DECIMAL(10,2)),
-    CAST(P2.RevenueHours AS DECIMAL(10,2)),
+    CAST(NULL AS DECIMAL(10,2)),
+    CAST(NULL AS DECIMAL(10,2)),
     CAST(P2.EffectiveRateMiles AS DECIMAL(10,2)),
     CAST(P2.EffectiveRateHours AS DECIMAL(10,2)),
     CAST(NULL AS INT),
@@ -764,8 +781,8 @@ result AS (
         CAST(P2.RevenueMilesAmount + P2.RevenueHoursAmount AS DECIMAL(10,2)),
         CAST(NULL AS DECIMAL(10,2)),
         CAST('Regular' AS NVARCHAR(50)),
-        CAST(P2.RevenueMiles AS DECIMAL(10,2)),
-        CAST(P2.RevenueHours AS DECIMAL(10,2)),
+        CAST(NULL AS DECIMAL(10,2)),
+        CAST(NULL AS DECIMAL(10,2)),
         CAST(P2.EffectiveRateMiles AS DECIMAL(10,2)),
         CAST(P2.EffectiveRateHours AS DECIMAL(10,2)),
         CAST(NULL AS INT),
