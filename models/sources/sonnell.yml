@@ -1,0 +1,21 @@
+version: 2
+
+sources:
+  - name: sonnell
+    description: "Sonnell source tables from dbo schema"
+    schema: dbo
+    tables:
+      - name: SonnellDailySummary
+        description: "Daily summary of Sonnell subsystem revenue metrics (hours, miles, trips) by route and subsystem"
+      - name: SonnellRates
+        description: "Rate cards for Sonnell subsystems with effective date ranges"
+      - name: SonnellSubsystemCost
+        description: "Target fact table for Sonnell subsystem costs with SCD Type 2 versioning"
+      - name: SonnellCheckpoints
+        description: "Checkpoint-level OTP compliance data per trip/visit with Compliant flag (t/f)"
+      - name: SonnellParameters
+        description: "OTP threshold ranges and incentive/offset rates per subsystem (GroupId)"
+      - name: SonnellOffsetApplied
+        description: "Audit table for the 4% offset cap rule per (Year, Month, Subsystem)"
+      - name: SonnellInvoiceTotals
+        description: "Original invoice totals table (pre-dbt); referenced for legacy compatibility"
