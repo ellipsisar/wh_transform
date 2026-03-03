@@ -186,6 +186,17 @@
             WHERE inv.[Type] = 'Regular'
                 AND inv.[Month] = {{ var('sonnell_invoice_reprocess_month') }}
                 AND inv.[Year] = {{ var('sonnell_invoice_reprocess_year') }}
+            {% else %}
+            UPDATE inv SET inv.Trips = agg.TotalTrips
+            FROM {{ this }} AS inv
+            INNER JOIN (
+                SELECT [Year], [Month], GroupId, SUM(NumTrips) AS TotalTrips
+                FROM {{ ref('fct_sonnell_subsystem_cost') }}
+                WHERE CurrentVersion = 1 AND GroupId IN ('MB', 'TC')
+                GROUP BY [Year], [Month], GroupId
+            ) AS agg ON inv.[Year] = agg.[Year] AND inv.[Month] = agg.[Month]
+                AND inv.Subsystem = agg.GroupId
+            WHERE inv.[Type] = 'Regular' AND inv.CurrentVersion = 1
             {% endif %}",
             "{% if is_incremental() and not var('sonnell_invoice_reprocess', false) %}
             UPDATE inv SET inv.Trips = agg.TotalTrips
@@ -212,6 +223,18 @@
             WHERE inv.[Type] = 'Regular' AND inv.Routes IN ('E20', '20', 'E30', '30')
                 AND inv.[Month] = {{ var('sonnell_invoice_reprocess_month') }}
                 AND inv.[Year] = {{ var('sonnell_invoice_reprocess_year') }}
+            {% else %}
+            UPDATE inv SET inv.Trips = agg.TotalTrips
+            FROM {{ this }} AS inv
+            INNER JOIN (
+                SELECT [Year], [Month], RouteId, SUM(NumTrips) AS TotalTrips
+                FROM {{ ref('fct_sonnell_subsystem_cost') }}
+                WHERE CurrentVersion = 1 AND RouteId IN ('E20', '20', 'E30', '30')
+                GROUP BY [Year], [Month], RouteId
+            ) AS agg ON inv.[Year] = agg.[Year] AND inv.[Month] = agg.[Month]
+                AND inv.Routes = agg.RouteId
+            WHERE inv.[Type] = 'Regular' AND inv.Routes IN ('E20', '20', 'E30', '30')
+                AND inv.CurrentVersion = 1
             {% endif %}",
             "{% if is_incremental() and not var('sonnell_invoice_reprocess', false) %}
             UPDATE inv
@@ -279,6 +302,15 @@
             WHERE inv.[Type] = 'Offset'
                 AND inv.[Month] = {{ var('sonnell_invoice_reprocess_month') }}
                 AND inv.[Year] = {{ var('sonnell_invoice_reprocess_year') }}
+            {% else %}
+            UPDATE inv
+            SET inv.CompliantCheckpoints = o.TotalCompliant1,
+                inv.NonCompliantCheckpoints = o.TotalCompliant0
+            FROM {{ this }} AS inv
+            INNER JOIN {{ ref('fct_sonnell_subsystem_offset') }} AS o
+                ON inv.[Year] = o.[Year] AND inv.[Month] = o.[Month]
+                AND inv.Subsystem = o.Subsystem
+            WHERE inv.[Type] = 'Offset' AND inv.CurrentVersion = 1 AND o.CurrentVersion = 1
             {% endif %}",
             "{% if is_incremental() and not var('sonnell_invoice_reprocess', false) %}
             UPDATE {{ this }}
@@ -289,6 +321,10 @@
             SET CreatedAt = GETDATE(), UpdatedAt = GETDATE()
             WHERE [Month] = {{ var('sonnell_invoice_reprocess_month') }}
                 AND [Year] = {{ var('sonnell_invoice_reprocess_year') }}
+            {% else %}
+            UPDATE {{ this }}
+            SET CreatedAt = GETDATE(), UpdatedAt = GETDATE()
+            WHERE CurrentVersion = 1
             {% endif %}"
         ]
     )
