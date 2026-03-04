@@ -1,0 +1,221 @@
+{
+    "name": "pl_trigger_dbt_job",
+    "properties": {
+        "description": "Triggers and monitors a dbt Cloud job via API. Requires dbt API key stored in Azure Key Vault.",
+        "parameters": {
+            "dbt_account_id": {
+                "type": "string",
+                "defaultValue": "70471823471583"
+            },
+            "dbt_job_id": {
+                "type": "string",
+                "defaultValue": "70471823569124"
+            },
+            "keyvault_url": {
+                "type": "string",
+                "defaultValue": "https://<your-keyvault>.vault.azure.net"
+            },
+            "keyvault_secret_name": {
+                "type": "string",
+                "defaultValue": "dbt-api-key"
+            }
+        },
+        "variables": {
+            "dbt_run_id": {
+                "type": "String",
+                "defaultValue": ""
+            },
+            "dbt_job_status": {
+                "type": "String",
+                "defaultValue": "running"
+            }
+        },
+        "activities": [
+            {
+                "name": "Fetch dbt Token",
+                "description": "Retrieves the dbt Cloud API token from Azure Key Vault using Managed Identity.",
+                "type": "WebActivity",
+                "dependsOn": [],
+                "policy": {
+                    "timeout": "0.00:05:00",
+                    "retry": 1,
+                    "retryIntervalInSeconds": 30,
+                    "secureOutput": true,
+                    "secureInput": false
+                },
+                "typeProperties": {
+                    "url": {
+                        "value": "@concat(pipeline().parameters.keyvault_url, '/secrets/', pipeline().parameters.keyvault_secret_name, '?api-version=7.0')",
+                        "type": "Expression"
+                    },
+                    "method": "GET",
+                    "authentication": {
+                        "type": "MSI",
+                        "resource": "https://vault.azure.net"
+                    }
+                }
+            },
+            {
+                "name": "Trigger dbt Job",
+                "description": "Sends POST request to dbt Cloud API to trigger the job.",
+                "type": "WebActivity",
+                "dependsOn": [
+                    {
+                        "activity": "Fetch dbt Token",
+                        "dependencyConditions": ["Succeeded"]
+                    }
+                ],
+                "policy": {
+                    "timeout": "0.00:05:00",
+                    "retry": 1,
+                    "retryIntervalInSeconds": 30,
+                    "secureOutput": false,
+                    "secureInput": true
+                },
+                "typeProperties": {
+                    "url": {
+                        "value": "@concat('https://yi643.us1.dbt.com/api/v2/accounts/', pipeline().parameters.dbt_account_id, '/jobs/', pipeline().parameters.dbt_job_id, '/run/')",
+                        "type": "Expression"
+                    },
+                    "method": "POST",
+                    "headers": {
+                        "Authorization": {
+                            "value": "@concat('Token ', activity('Fetch dbt Token').output.value)",
+                            "type": "Expression"
+                        },
+                        "Content-Type": "application/json"
+                    },
+                    "body": {
+                        "cause": "Triggered via Azure Synapse"
+                    }
+                }
+            },
+            {
+                "name": "Set Run ID",
+                "description": "Captures the run_id returned by dbt Cloud after triggering the job.",
+                "type": "SetVariable",
+                "dependsOn": [
+                    {
+                        "activity": "Trigger dbt Job",
+                        "dependencyConditions": ["Succeeded"]
+                    }
+                ],
+                "typeProperties": {
+                    "variableName": "dbt_run_id",
+                    "value": {
+                        "value": "@string(activity('Trigger dbt Job').output.data.id)",
+                        "type": "Expression"
+                    }
+                }
+            },
+            {
+                "name": "Monitor dbt Job",
+                "description": "Polls dbt Cloud every 30 seconds until job finishes (success, error, or cancelled). dbt status codes: 1=Queued, 2=Starting, 3=Running, 10=Success, 20=Error, 30=Cancelled.",
+                "type": "Until",
+                "dependsOn": [
+                    {
+                        "activity": "Set Run ID",
+                        "dependencyConditions": ["Succeeded"]
+                    }
+                ],
+                "typeProperties": {
+                    "expression": {
+                        "value": "@not(equals(variables('dbt_job_status'), 'running'))",
+                        "type": "Expression"
+                    },
+                    "timeout": "0.12:00:00",
+                    "activities": [
+                        {
+                            "name": "Wait 30 seconds",
+                            "type": "Wait",
+                            "dependsOn": [],
+                            "typeProperties": {
+                                "waitTimeInSeconds": 30
+                            }
+                        },
+                        {
+                            "name": "Check Job Status",
+                            "description": "GET request to dbt Cloud to check the current status of the run.",
+                            "type": "WebActivity",
+                            "dependsOn": [
+                                {
+                                    "activity": "Wait 30 seconds",
+                                    "dependencyConditions": ["Succeeded"]
+                                }
+                            ],
+                            "policy": {
+                                "timeout": "0.00:02:00",
+                                "retry": 2,
+                                "retryIntervalInSeconds": 15,
+                                "secureInput": true
+                            },
+                            "typeProperties": {
+                                "url": {
+                                    "value": "@concat('https://yi643.us1.dbt.com/api/v2/accounts/', pipeline().parameters.dbt_account_id, '/runs/', variables('dbt_run_id'), '/')",
+                                    "type": "Expression"
+                                },
+                                "method": "GET",
+                                "headers": {
+                                    "Authorization": {
+                                        "value": "@concat('Token ', activity('Fetch dbt Token').output.value)",
+                                        "type": "Expression"
+                                    }
+                                }
+                            }
+                        },
+                        {
+                            "name": "Set Job Status",
+                            "description": "Maps dbt numeric status code to a readable string variable.",
+                            "type": "SetVariable",
+                            "dependsOn": [
+                                {
+                                    "activity": "Check Job Status",
+                                    "dependencyConditions": ["Succeeded"]
+                                }
+                            ],
+                            "typeProperties": {
+                                "variableName": "dbt_job_status",
+                                "value": {
+                                    "value": "@if(equals(activity('Check Job Status').output.data.status, 10), 'success', if(equals(activity('Check Job Status').output.data.status, 20), 'error', if(equals(activity('Check Job Status').output.data.status, 30), 'cancelled', 'running')))",
+                                    "type": "Expression"
+                                }
+                            }
+                        }
+                    ]
+                }
+            },
+            {
+                "name": "Check Final Status",
+                "description": "Fails the pipeline explicitly if the dbt job did not complete successfully.",
+                "type": "IfCondition",
+                "dependsOn": [
+                    {
+                        "activity": "Monitor dbt Job",
+                        "dependencyConditions": ["Succeeded"]
+                    }
+                ],
+                "typeProperties": {
+                    "expression": {
+                        "value": "@equals(variables('dbt_job_status'), 'success')",
+                        "type": "Expression"
+                    },
+                    "ifTrueActivities": [],
+                    "ifFalseActivities": [
+                        {
+                            "name": "Fail Pipeline",
+                            "type": "Fail",
+                            "typeProperties": {
+                                "message": {
+                                    "value": "@concat('dbt job failed or was cancelled. Status: ', variables('dbt_job_status'), ' | Run ID: ', variables('dbt_run_id'))",
+                                    "type": "Expression"
+                                },
+                                "errorCode": "DBT_JOB_FAILED"
+                            }
+                        }
+                    ]
+                }
+            }
+        ],
+        "annotations": []
+    }
+}
