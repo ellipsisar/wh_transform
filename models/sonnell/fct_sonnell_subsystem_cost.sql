@@ -1,3 +1,4 @@
+-- depends_on: {{ ref('stg_SonnellDailySummary') }}
 {{
     config(
         materialized='incremental',
