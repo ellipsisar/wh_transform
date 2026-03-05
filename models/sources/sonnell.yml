@@ -1,6 +1,13 @@
 version: 2
 
 sources:
+  - name: sonnell_raw
+    description: "Sonnell external tables from raw schema (data lake)"
+    schema: raw
+    tables:
+      - name: sonnell_trip
+        description: "External table with raw trip data from Sonnell subsystem, sourced from data lake (Parquet)"
+
   - name: sonnell
     description: "Sonnell source tables from dbo schema"
     schema: dbo
