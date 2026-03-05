@@ -1,4 +1,3 @@
--- depends_on: {{ ref('stg_SonnellCheckpoints') }}
 {{
     config(
         materialized='incremental',
@@ -12,17 +11,25 @@
             UPDATE t
             SET t.CurrentVersion = 0
             FROM {{ this }} AS t
-            INNER JOIN {{ ref('stg_SonnellCheckpoints') }} AS b
-                ON t.[Year] = YEAR(b.ServiceDate)
-                AND t.[Month] = MONTH(b.ServiceDate)
-                AND t.Subsystem = b.Subsystem
+            INNER JOIN (
+                SELECT
+                    YEAR(svc_date)  AS [year],
+                    MONTH(svc_date) AS [month],
+                    subsystem,
+                    CAST(FORMAT(MAX(_md_processed_at), 'yyyyMMdd') AS BIGINT) AS Version
+                FROM {{ source('sonnell_raw', 'sonnell_checkpoin') }}
+                GROUP BY YEAR(svc_date), MONTH(svc_date), subsystem
+            ) AS b
+                ON t.[Year] = b.[year]
+                AND t.[Month] = b.[month]
+                AND t.Subsystem = b.subsystem
             WHERE t.Version <> b.Version
                 AND t.CurrentVersion = 1
                 AND NOT EXISTS (
                     SELECT 1 FROM {{ this }} AS t2
-                    WHERE t2.[Year] = YEAR(b.ServiceDate)
-                    AND t2.[Month] = MONTH(b.ServiceDate)
-                    AND t2.Subsystem = b.Subsystem
+                    WHERE t2.[Year] = b.[year]
+                    AND t2.[Month] = b.[month]
+                    AND t2.Subsystem = b.subsystem
                     AND t2.Version = b.Version
                 )
             {% elif is_incremental() and var('sonnell_offset_reprocess', false) %}

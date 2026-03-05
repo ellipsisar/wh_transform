@@ -1,4 +1,3 @@
--- depends_on: {{ ref('stg_SonnellDailySummary') }}
 {{
     config(
         materialized='incremental',
@@ -12,13 +11,17 @@
             UPDATE t
             SET t.CurrentVersion = 0
             FROM {{ this }} AS t
-            INNER JOIN {{ ref('stg_SonnellDailySummary') }} AS b
+            INNER JOIN (
+                SELECT svc_date, CAST(FORMAT(MAX(_md_processed_at), 'yyyyMMdd') AS BIGINT) AS Version
+                FROM {{ source('sonnell_raw', 'sonnell_subsystem') }}
+                GROUP BY svc_date
+            ) AS b
                 ON t.ServiceDate = b.svc_date
             WHERE t.Version <> b.Version
                 AND t.CurrentVersion = 1
                 AND NOT EXISTS (
                     SELECT 1 FROM {{ this }} AS t2
-                    WHERE t2.ServiceDate = b.ServiceDate
+                    WHERE t2.ServiceDate = b.svc_date
                     AND t2.Version = b.Version
                 )
             {% elif is_incremental() and var('sonnell_reprocess', false) %}
