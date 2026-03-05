@@ -18,4 +18,4 @@ SELECT
     GeneratedAt,
     CreatedAt,
     Version
-FROM {{ source('sonnell', 'SonnellCheckpoints') }}
+FROM {{ ref('stg_SonnellCheckpoints') }}

@@ -11,7 +11,7 @@
             UPDATE t
             SET t.CurrentVersion = 0
             FROM {{ this }} AS t
-            INNER JOIN {{ source('sonnell', 'SonnellCheckpoints') }} AS b
+            INNER JOIN {{ ref('stg_SonnellCheckpoints') }} AS b
                 ON t.[Year] = YEAR(b.ServiceDate)
                 AND t.[Month] = MONTH(b.ServiceDate)
                 AND t.Subsystem = b.Subsystem

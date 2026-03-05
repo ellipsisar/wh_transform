@@ -401,23 +401,23 @@ mu_rates AS (
         EffectiveRateHours, EffectiveRateMiles
     FROM (
         SELECT
-            YEAR(t1.ServiceDate) AS [Year],
-            MONTH(t1.ServiceDate) AS [Month],
-            DATENAME(MONTH, t1.ServiceDate) AS MonthName,
-            t1.Subsystem, t1.RouteId,
-            ROUND(SUM(t1.RevenueMeters) / 1609.34, 2) AS RevenueMiles,
-            ROUND(SUM(t1.RevenueSeconds) / 3600.0, 2) AS RevenueHours,
-            ROUND(SUM(t1.RevenueMeters) / 1609.34 * t2.RateMiles, 2) AS RevenueMilesAmount,
-            ROUND(SUM(t1.RevenueSeconds) / 3600.0 * t2.RateHours, 2) AS RevenueHoursAmount,
+            YEAR(t1.svc_date) AS [Year],
+            MONTH(t1.svc_date) AS [Month],
+            DATENAME(MONTH, t1.svc_date) AS MonthName,
+            t1.subsystem, t1.route_id,
+            ROUND(SUM(t1.revenue_meters) / 1609.34, 2) AS RevenueMiles,
+            ROUND(SUM(t1.revenue_seconds) / 3600.0, 2) AS RevenueHours,
+            ROUND(SUM(t1.revenue_meters) / 1609.34 * t2.RateMiles, 2) AS RevenueMilesAmount,
+            ROUND(SUM(t1.revenue_seconds) / 3600.0 * t2.RateHours, 2) AS RevenueHoursAmount,
             t2.RateHours AS EffectiveRateHours,
             t2.RateMiles AS EffectiveRateMiles
-        FROM {{ source('sonnell', 'SonnellDailySummary') }} AS t1
+        FROM {{ ref('stg_SonnellDailySummary') }} AS t1
         INNER JOIN {{ source('sonnell', 'SonnellRates') }} AS t2
-            ON t1.Subsystem = t2.GroupId
-        WHERE t1.ServiceDate BETWEEN t2.StartDate AND t2.EndDate
-            AND t1.Subsystem = 'MU'
-        GROUP BY YEAR(t1.ServiceDate), MONTH(t1.ServiceDate), DATENAME(MONTH, t1.ServiceDate),
-                 t1.Subsystem, t1.RouteId, t2.RateHours, t2.RateMiles
+            ON t1.subsystem = t2.GroupId
+        WHERE t1.svc_date BETWEEN t2.StartDate AND t2.EndDate
+            AND t1.subsystem = 'MU'
+        GROUP BY YEAR(t1.svc_date), MONTH(t1.svc_date), DATENAME(MONTH, t1.svc_date),
+                 t1.subsystem, t1.route_id, t2.RateHours, t2.RateMiles
     ) P1
     GROUP BY [Year], [Month], MonthName, Subsystem, RouteId, EffectiveRateHours, EffectiveRateMiles
 
@@ -575,25 +575,25 @@ mu_rates AS (
         EffectiveRateHours, EffectiveRateMiles
     FROM (
         SELECT
-            YEAR(t1.ServiceDate) AS [Year],
-            MONTH(t1.ServiceDate) AS [Month],
-            DATENAME(MONTH, t1.ServiceDate) AS MonthName,
-            t1.Subsystem, t1.RouteId,
-            ROUND(SUM(t1.RevenueMeters) / 1609.34, 2) AS RevenueMiles,
-            ROUND(SUM(t1.RevenueSeconds) / 3600.0, 2) AS RevenueHours,
-            ROUND(SUM(t1.RevenueMeters) / 1609.34 * t2.RateMiles, 2) AS RevenueMilesAmount,
-            ROUND(SUM(t1.RevenueSeconds) / 3600.0 * t2.RateHours, 2) AS RevenueHoursAmount,
+            YEAR(t1.svc_date) AS [Year],
+            MONTH(t1.svc_date) AS [Month],
+            DATENAME(MONTH, t1.svc_date) AS MonthName,
+            t1.subsystem, t1.route_id,
+            ROUND(SUM(t1.revenue_meters) / 1609.34, 2) AS RevenueMiles,
+            ROUND(SUM(t1.revenue_seconds) / 3600.0, 2) AS RevenueHours,
+            ROUND(SUM(t1.revenue_meters) / 1609.34 * t2.RateMiles, 2) AS RevenueMilesAmount,
+            ROUND(SUM(t1.revenue_seconds) / 3600.0 * t2.RateHours, 2) AS RevenueHoursAmount,
             t2.RateHours AS EffectiveRateHours,
             t2.RateMiles AS EffectiveRateMiles
-        FROM {{ source('sonnell', 'SonnellDailySummary') }} AS t1
+        FROM {{ ref('stg_SonnellDailySummary') }} AS t1
         INNER JOIN {{ source('sonnell', 'SonnellRates') }} AS t2
-            ON t1.Subsystem = t2.GroupId AND t2.IsActive = 1
-        WHERE t1.ServiceDate BETWEEN t2.StartDate AND t2.EndDate
-            AND t1.Subsystem = 'MU'
-            AND MONTH(t1.ServiceDate) = {{ var('sonnell_invoice_reprocess_month') }}
-            AND YEAR(t1.ServiceDate) = {{ var('sonnell_invoice_reprocess_year') }}
-        GROUP BY YEAR(t1.ServiceDate), MONTH(t1.ServiceDate), DATENAME(MONTH, t1.ServiceDate),
-                 t1.Subsystem, t1.RouteId, t2.RateHours, t2.RateMiles
+            ON t1.subsystem = t2.GroupId AND t2.IsActive = 1
+        WHERE t1.svc_date BETWEEN t2.StartDate AND t2.EndDate
+            AND t1.subsystem = 'MU'
+            AND MONTH(t1.svc_date) = {{ var('sonnell_invoice_reprocess_month') }}
+            AND YEAR(t1.svc_date) = {{ var('sonnell_invoice_reprocess_year') }}
+        GROUP BY YEAR(t1.svc_date), MONTH(t1.svc_date), DATENAME(MONTH, t1.svc_date),
+                 t1.subsystem, t1.route_id, t2.RateHours, t2.RateMiles
     ) P1
     GROUP BY [Year], [Month], MonthName, Subsystem, RouteId, EffectiveRateHours, EffectiveRateMiles
 
@@ -751,25 +751,25 @@ mu_rates AS (
         EffectiveRateHours, EffectiveRateMiles
     FROM (
         SELECT
-            YEAR(t1.ServiceDate) AS [Year],
-            MONTH(t1.ServiceDate) AS [Month],
-            DATENAME(MONTH, t1.ServiceDate) AS MonthName,
-            t1.Subsystem, t1.RouteId,
-            ROUND(SUM(t1.RevenueMeters) / 1609.34, 2) AS RevenueMiles,
-            ROUND(SUM(t1.RevenueSeconds) / 3600.0, 2) AS RevenueHours,
-            ROUND(SUM(t1.RevenueMeters) / 1609.34 * t2.RateMiles, 2) AS RevenueMilesAmount,
-            ROUND(SUM(t1.RevenueSeconds) / 3600.0 * t2.RateHours, 2) AS RevenueHoursAmount,
+            YEAR(t1.svc_date) AS [Year],
+            MONTH(t1.svc_date) AS [Month],
+            DATENAME(MONTH, t1.svc_date) AS MonthName,
+            t1.subsystem, t1.route_id,
+            ROUND(SUM(t1.revenue_meters) / 1609.34, 2) AS RevenueMiles,
+            ROUND(SUM(t1.revenue_seconds) / 3600.0, 2) AS RevenueHours,
+            ROUND(SUM(t1.revenue_meters) / 1609.34 * t2.RateMiles, 2) AS RevenueMilesAmount,
+            ROUND(SUM(t1.revenue_seconds) / 3600.0 * t2.RateHours, 2) AS RevenueHoursAmount,
             t2.RateHours AS EffectiveRateHours,
             t2.RateMiles AS EffectiveRateMiles
-        FROM {{ source('sonnell', 'SonnellDailySummary') }} AS t1
+        FROM {{ ref('stg_SonnellDailySummary') }} AS t1
         INNER JOIN {{ source('sonnell', 'SonnellRates') }} AS t2
-            ON t1.Subsystem = t2.GroupId
-        WHERE t1.ServiceDate BETWEEN t2.StartDate AND t2.EndDate
-            AND t1.Subsystem = 'MU'
-            AND CAST(CONCAT(YEAR(t1.ServiceDate), '-', MONTH(t1.ServiceDate), '-01') AS DATE)
+            ON t1.subsystem = t2.GroupId
+        WHERE t1.svc_date BETWEEN t2.StartDate AND t2.EndDate
+            AND t1.subsystem = 'MU'
+            AND CAST(CONCAT(YEAR(t1.svc_date), '-', MONTH(t1.svc_date), '-01') AS DATE)
                 < CAST(CONCAT(DATEPART(YEAR, GETDATE()), '-', DATEPART(MONTH, GETDATE()), '-01') AS DATE)
-        GROUP BY YEAR(t1.ServiceDate), MONTH(t1.ServiceDate), DATENAME(MONTH, t1.ServiceDate),
-                 t1.Subsystem, t1.RouteId, t2.RateHours, t2.RateMiles
+        GROUP BY YEAR(t1.svc_date), MONTH(t1.svc_date), DATENAME(MONTH, t1.svc_date),
+                 t1.subsystem, t1.route_id, t2.RateHours, t2.RateMiles
     ) P1
     GROUP BY [Year], [Month], MonthName, Subsystem, RouteId, EffectiveRateHours, EffectiveRateMiles
 

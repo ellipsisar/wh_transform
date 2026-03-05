@@ -11,8 +11,8 @@
             UPDATE t
             SET t.CurrentVersion = 0
             FROM {{ this }} AS t
-            INNER JOIN {{ source('sonnell', 'SonnellDailySummary') }} AS b
-                ON t.ServiceDate = b.ServiceDate
+            INNER JOIN {{ ref('stg_SonnellDailySummary') }} AS b
+                ON t.ServiceDate = b.svc_date
             WHERE t.Version <> b.Version
                 AND t.CurrentVersion = 1
                 AND NOT EXISTS (

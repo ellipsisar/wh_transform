@@ -2,12 +2,12 @@
 
 SELECT
     Id,
-    ServiceDate,
-    Subsystem                                AS GroupId,
-    RouteId,
-    TripCount                                AS NumTrips,
-    ROUND(RevenueSeconds / 3600.0, 2)        AS RevenueHours,
-    ROUND(RevenueMeters / 1609.34, 2)        AS RevenueMiles,
+    svc_date                                 AS ServiceDate,
+    subsystem                                AS GroupId,
+    route_id                                 AS RouteId,
+    num_trips                                AS NumTrips,
+    ROUND(revenue_seconds / 3600.0, 2)       AS RevenueHours,
+    ROUND(revenue_meters / 1609.34, 2)       AS RevenueMiles,
     CreatedAt,
     Version
-FROM {{ source('sonnell', 'SonnellDailySummary') }}
+FROM {{ ref('stg_SonnellDailySummary') }}
