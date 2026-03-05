@@ -9,6 +9,8 @@ sources:
         description: "External table with raw trip data from Sonnell subsystem, sourced from data lake (Parquet)"
       - name: sonnell_subsystem
         description: "External table with raw daily summary data by subsystem and route, sourced from data lake (Parquet)"
+      - name: sonnell_checkpoin
+        description: "External table with raw checkpoint-level OTP data per trip/visit, sourced from data lake (Parquet)"
 
   - name: sonnell
     description: "Sonnell source tables from dbo schema"
