@@ -88,7 +88,3 @@ FROM {{ source('geotab', 'geotab_device') }} d
         ON d.device_id = v.device_id
 WHERE
     (d.active_to IS NULL OR d.active_to > GETDATE())
-ORDER BY
-    CASE WHEN si.status_datetime IS NULL THEN 1 ELSE 0 END DESC,
-    dias_sin_comunicacion DESC;
-
