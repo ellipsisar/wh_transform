@@ -1,0 +1,18 @@
+version: 2
+
+sources:
+  - name: geotab
+    description: ""
+    schema: dbo
+    tables:
+      - name: geotab_device
+      - name: geotab_device_status_info
+      - name: geotab_exception_event
+      - name: geotab_fault_data
+      - name: geotab_group
+      - name: geotab_log_record
+      - name: geotab_route
+      - name: geotab_route_plan_item
+      - name: geotab_status_data
+      - name: geotab_trip
+      - name: geotab_zone
