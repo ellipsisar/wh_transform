@@ -33,9 +33,9 @@ cte_device AS (
 
 SELECT
     CONVERT(DATETIME, i.log_datetime)   AS fecha_incidente,
-    d.device_id                         AS DeviceId,
-    d.device_name                       AS [Device Name],
-    d.device_comment                    AS [Device Comment],
+    d.device_id                         AS device_id,
+    d.device_name                       AS device_name,
+    d.device_comment                    AS device_comment,
     i.latitud_incidente,
     i.longitud_incidente,
     i.velocidad_kmh,

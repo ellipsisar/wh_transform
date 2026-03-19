@@ -29,11 +29,11 @@ cte_viajes AS (
 )
 
 SELECT
-    d.device_id                                     AS DeviceId,
-    d.device_name                                   AS [Device Name],
-    d.comment                                       AS [Device Comment],
-    CONVERT(DATETIME, si.status_datetime)           AS [Ultima fecha de comunicacion],
-    CONVERT(BIT, ISNULL(si.is_device_communicating, 0)) AS IsDeviceCommunicating,
+    d.device_id                                     AS device_id,
+    d.device_name                                   AS device_name,
+    d.comment                                       AS device_comment,
+    CONVERT(DATETIME, si.status_datetime)           AS ultima_fecha_de_comunicacion,
+    CONVERT(BIT, ISNULL(si.is_device_communicating, 0)) AS is_device_communicating,
     DATEDIFF(DAY, si.status_datetime, GETDATE())    AS dias_sin_comunicacion,
     CONVERT(DATETIME, g.ultima_posicion_gps)        AS ultima_posicion_gps,
     DATEDIFF(DAY, g.ultima_posicion_gps, GETDATE()) AS dias_sin_gps,
