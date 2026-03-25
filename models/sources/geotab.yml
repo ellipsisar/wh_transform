@@ -16,3 +16,5 @@ sources:
       - name: geotab_status_data
       - name: geotab_trip
       - name: geotab_zone
+      - name: geotab_zone_type
+      - name: geotab_rule

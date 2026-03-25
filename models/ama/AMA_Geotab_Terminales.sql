@@ -1,0 +1,155 @@
+{{ config(
+    materialized='incremental',
+    incremental_strategy='append',
+    dist='HASH(zone_id)',
+    index='CLUSTERED COLUMNSTORE INDEX',
+    tag='dashboard_AMA',
+    pre_hook="{% if is_incremental() %}\
+        DELETE FROM {{ this }}\
+        WHERE event_date >= DATEADD(DAY, -1, CAST(GETDATE() AS DATE))\
+    {% else %} SELECT 1 AS noop {% endif %}"
+) }}
+
+WITH
+
+cte_zonas AS (
+    SELECT
+        zone_id,
+        zone_name,
+        zone_type_name as zone_type,
+        external_reference              AS terminal_codigo_externo,
+        active_from                     AS zona_activa_desde,
+        active_to                       AS zona_activa_hasta
+    FROM {{ source('geotab', 'geotab_zone') }} z
+    LEFT JOIN {{ source('geotab', 'geotab_zone_type') }} t ON z.zone_id = t.zone_type_id
+    WHERE (active_to IS NULL OR active_to > GETDATE())
+      -- AND zone_type = 'Terminal'
+),
+
+cte_rules AS (
+    SELECT
+        r.rule_id,
+        r.rule_name,
+        z.zone_id,
+        z.zone_name,
+        z.zone_type,
+        z.terminal_codigo_externo
+    FROM {{ source('geotab', 'geotab_rule') }} r
+    LEFT JOIN cte_zonas z
+        ON z.zone_name = r.rule_name
+    -- Filtrar solo reglas de tipo ZoneStop
+    -- WHERE r.base_type = 'ZoneStop'
+),
+
+
+cte_eventos AS (
+    SELECT
+        ee.exception_event_id,
+        ee.device_id,
+        ee.driver_id,
+        ee.rule_id,                                 -- puente hacia la zona
+        cr.zone_id,                                 -- ← resuelto via Rule
+        cr.zone_name,
+        cr.zone_type,
+        cr.terminal_codigo_externo,
+        CONVERT(DATETIME, ee.active_from)           AS active_from,
+        CONVERT(DATETIME, ee.active_to)             AS active_to,
+        CASE
+            WHEN ee.active_from IS NOT NULL
+             AND ee.active_to   IS NOT NULL
+            THEN CAST(
+                DATEDIFF(SECOND, ee.active_from, ee.active_to) / 60.0
+                AS DECIMAL(10, 2))
+            ELSE NULL
+        END                                         AS dwell_time_minutes,
+        CONVERT(DATE,     ee.active_from)           AS event_date,
+        DATEPART(HOUR,    ee.active_from)           AS entry_hour,
+        DATEPART(WEEKDAY, ee.active_from)           AS entry_weekday
+    FROM {{ source('geotab', 'geotab_exception_event') }} ee
+    -- Join hacia la zona via Rule
+    INNER JOIN cte_rules cr
+        ON cr.rule_id = ee.rule_id
+    {% if is_incremental() %}
+    WHERE ee.active_from >= DATEADD(DAY, -1, CAST(GETDATE() AS DATE))
+    {% endif %}
+),
+
+cte_viaje_siguiente AS (
+    SELECT
+        ev.exception_event_id,
+        MIN(t.trip_start)   AS next_trip_start,
+        MIN(t.trip_id)      AS next_trip_id
+    FROM cte_eventos ev
+    JOIN {{ source('geotab', 'geotab_trip') }} t
+        ON  t.device_id  = ev.device_id
+        AND t.trip_start >= ev.active_to
+        AND t.trip_start <  DATEADD(HOUR, 4, ev.active_to)
+    WHERE ev.active_to IS NOT NULL
+    GROUP BY ev.exception_event_id
+)
+
+SELECT
+    -- Identificadores
+    ev.exception_event_id,
+    ev.event_date,
+    ev.entry_hour,
+    ev.entry_weekday,
+
+    -- Terminal (zone_id ahora resuelto via Rule)
+    ev.zone_id,
+    ev.zone_name                                            AS terminal_name,
+    ev.zone_type                                            AS terminal_type,
+    ev.terminal_codigo_externo,
+
+    -- Vehículo
+    ev.device_id                                            AS vehicle_id,
+    d.device_name                                           AS vehicle_name,
+    d.device_type                                           AS vehicle_type,
+
+    -- Conductor
+    ev.driver_id,
+
+    -- Tiempos del evento en terminal
+    ev.active_from                                          AS terminal_entry_datetime,
+    ev.active_to                                            AS terminal_exit_datetime,
+    ev.dwell_time_minutes,
+
+    -- Clasificación de permanencia
+    CASE
+        WHEN ev.dwell_time_minutes IS NULL              THEN 'SIN_DATOS'
+        WHEN ev.dwell_time_minutes < 5                  THEN 'RAPIDO'
+        WHEN ev.dwell_time_minutes BETWEEN 5  AND 15    THEN 'NORMAL'
+        WHEN ev.dwell_time_minutes BETWEEN 15 AND 30    THEN 'DEMORADO'
+        ELSE                                                 'CUELLO_DE_BOTELLA'
+    END                                                     AS dwell_categoria,
+    CAST(
+        CASE WHEN ev.dwell_time_minutes > 30 THEN 1 ELSE 0 END
+    AS BIT)                                                 AS es_cuello_de_botella,
+
+    -- Franja horaria
+    CASE
+        WHEN ev.entry_hour BETWEEN 5  AND 8  THEN 'MANANA_TEMPRANA'
+        WHEN ev.entry_hour BETWEEN 9  AND 11 THEN 'MANANA'
+        WHEN ev.entry_hour BETWEEN 12 AND 14 THEN 'MEDIODIA'
+        WHEN ev.entry_hour BETWEEN 15 AND 18 THEN 'TARDE'
+        WHEN ev.entry_hour BETWEEN 19 AND 22 THEN 'NOCHE'
+        ELSE                                     'MADRUGADA'
+    END                                                     AS franja_horaria,
+
+    -- Viaje posterior
+    vs.next_trip_id,
+    vs.next_trip_start,
+    DATEDIFF(MINUTE, ev.active_to, vs.next_trip_start)     AS minutos_hasta_viaje,
+
+    -- ITINERARIO: pendiente dataset AMA
+    CAST(NULL AS NVARCHAR(100))                             AS route_id,
+    CAST(NULL AS NVARCHAR(100))                             AS route_name,
+    CAST(NULL AS DATETIME)                                  AS scheduled_departure,
+    CAST(NULL AS INT)                                       AS delay_minutes,
+    CAST(NULL AS NVARCHAR(50))                              AS departure_status
+
+FROM cte_eventos ev
+LEFT JOIN {{ source('geotab', 'geotab_device') }} d
+    ON d.device_id = ev.device_id
+LEFT JOIN cte_viaje_siguiente vs
+    ON vs.exception_event_id = ev.exception_event_id
