@@ -27,7 +27,7 @@ wh_transform:  # This should match your dbt_project.yml name
       port: 1433
       database: 'ati_datawarehouse'
       schema: 'dbo'
-      dwh_user: 'your-dwh_user'
+      dwh_user: 'dwh_user'
       password: 'YourStrongP@ssw0rd!'
       authentication: 'sql'
       encrypt: true
@@ -42,7 +42,7 @@ wh_transform:  # This should match your dbt_project.yml name
       port: 1433
       database: 'ati_datawarehouse'
       schema: 'raw'
-      dwh_user: 'your-dwh_user'
+      dwh_user: 'dwh_user'
       password: 'YourStrongP@ssw0rd!'
       authentication: 'sql'
       encrypt: true
@@ -57,7 +57,7 @@ wh_transform:  # This should match your dbt_project.yml name
       port: 1433
       database: 'ati_datawarehouse'
       schema: 'dwh'
-      dwh_user: 'your-dwh_user'
+      dwh_user: 'dwh_user'
       password: 'YourStrongP@ssw0rd!'
       authentication: 'sql'
       encrypt: true

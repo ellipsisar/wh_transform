@@ -1,6 +1,13 @@
 {{ config(
-    materialized='view',
-    tag='dashboard_AMA'
+    materialized='incremental',
+    incremental_strategy='append',
+    dist='HASH(device_id)',
+    index='CLUSTERED COLUMNSTORE INDEX',
+    tag='dashboard_AMA',
+    pre_hook="{% if is_incremental() %}\
+        DELETE FROM {{ this }}\
+        WHERE fecha_incidente >= DATEADD(DAY, -1, CAST(GETDATE() AS DATE))\
+    {% else %} SELECT 1 AS noop {% endif %}"
 ) }}
 
 WITH cte_incidentes AS (
@@ -19,6 +26,9 @@ WITH cte_incidentes AS (
         AND log_datetime IS NOT NULL
         AND latitude     IS NOT NULL
         AND longitude    IS NOT NULL
+        {% if is_incremental() %}
+        AND log_datetime >= DATEADD(DAY, -1, CAST(GETDATE() AS DATE))
+        {% endif %}
 ),
 
 cte_device AS (
@@ -28,7 +38,7 @@ cte_device AS (
         comment     AS device_comment,
         active_from,
         active_to
-    FROM {{ source('geotab', 'geotab_device') }} 
+    FROM {{ source('geotab', 'geotab_device') }}
 )
 
 SELECT

@@ -1,6 +1,13 @@
 {{ config(
-    materialized='view',
-    tag='dashboard_AMA'
+    materialized='incremental',
+    incremental_strategy='append',
+    dist='HASH(vehicle_id)',
+    index='CLUSTERED COLUMNSTORE INDEX',
+    tag='dashboard_AMA',
+    pre_hook="{% if is_incremental() %}\
+        DELETE FROM {{ this }}\
+        WHERE [date] >= DATEADD(DAY, -1, CAST(GETDATE() AS DATE))\
+    {% else %} SELECT 1 AS noop {% endif %}"
 ) }}
 
 WITH trip_base AS (
@@ -31,6 +38,9 @@ WITH trip_base AS (
     FROM {{ source('geotab', 'geotab_trip') }} t
     LEFT JOIN {{ source('geotab', 'geotab_device') }} d
         ON d.device_id = t.device_id
+    {% if is_incremental() %}
+    WHERE t.trip_start >= DATEADD(DAY, -1, CAST(GETDATE() AS DATE))
+    {% endif %}
 ),
 
 delay_calc AS (
