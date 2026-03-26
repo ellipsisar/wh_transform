@@ -29,14 +29,14 @@ cte_zonas AS (
 cte_rules AS (
     SELECT
         r.rule_id,
-        r.rule_name,
+        r.name as rule_name,
         z.zone_id,
         z.zone_name,
         z.zone_type,
         z.terminal_codigo_externo
     FROM {{ source('geotab', 'geotab_rule') }} r
     LEFT JOIN cte_zonas z
-        ON z.zone_name = r.rule_name
+        ON z.zone_name = r.name
     -- Filtrar solo reglas de tipo ZoneStop
     -- WHERE r.base_type = 'ZoneStop'
 ),
