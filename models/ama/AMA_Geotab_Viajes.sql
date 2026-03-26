@@ -24,17 +24,7 @@ WITH trip_base AS (
         t.stop_point_lat,
         t.stop_point_lon,
         d.device_name                               AS vehicle_name,
-        d.device_type                               AS vehicle_type,
-        -- --------------------------------------------------------
-        -- ITINERARIO: pendiente de dataset — valores NULL hasta
-        -- recibir el dataset con horarios por ruta y viaje de AMA.
-        -- Reemplazar los tres campos siguientes con el JOIN
-        -- correspondiente a la tabla de itinerario cuando esté disponible.
-        -- --------------------------------------------------------
-        CAST(NULL AS NVARCHAR(100))                 AS route_id,
-        CAST(NULL AS NVARCHAR(100))                 AS route_name,
-        CAST(NULL AS NVARCHAR(100))                 AS terminal_name,
-        CAST(NULL AS DATETIME)                      AS scheduled_departure
+        d.device_type                               AS vehicle_type
     FROM {{ source('geotab', 'geotab_trip') }} t
     LEFT JOIN {{ source('geotab', 'geotab_device') }} d
         ON d.device_id = t.device_id
@@ -43,17 +33,66 @@ WITH trip_base AS (
     {% endif %}
 ),
 
-delay_calc AS (
+cte_regla_zona AS (
+    -- Resuelve rule_id → zone_id + route vía coincidencia de nombres.
+    -- ROW_NUMBER deduplica en caso de que una zona pertenezca a múltiples rutas.
+    SELECT
+        ru.rule_id,
+        z.zone_id,
+        z.zone_name,
+        r.route_id,
+        r.route_name,
+        ROW_NUMBER() OVER (PARTITION BY ru.rule_id ORDER BY r.route_id) AS rn
+    FROM {{ source('geotab', 'geotab_rule') }} ru
+    JOIN {{ source('geotab', 'geotab_zone') }} z
+        ON z.zone_name = ru.rule_name
+    LEFT JOIN {{ source('geotab', 'geotab_route_plan_item') }} rpi
+        ON rpi.zone_id = z.zone_id
+    LEFT JOIN {{ source('geotab', 'geotab_route') }} r
+        ON r.route_id = rpi.route_id
+),
+
+cte_terminal_pre_viaje AS (
+    -- Para cada viaje: busca el evento de zona (terminal) más reciente
+    -- que haya terminado hasta 4 horas antes de la salida del vehículo.
+    SELECT
+        tb.trip_id,
+        rz.zone_id,
+        rz.zone_name                                AS terminal_name,
+        rz.route_id,
+        rz.route_name,
+        ROW_NUMBER() OVER (PARTITION BY tb.trip_id ORDER BY ee.active_to DESC) AS rn
+    FROM trip_base tb
+    JOIN {{ source('geotab', 'geotab_exception_event') }} ee
+        ON  ee.device_id  = tb.device_id
+        AND ee.active_to <= tb.actual_departure
+        AND ee.active_to >= DATEADD(HOUR, -4, tb.actual_departure)
+    JOIN cte_regla_zona rz
+        ON  rz.rule_id = ee.rule_id
+        AND rz.rn      = 1
+),
+
+trip_con_terminal AS (
     SELECT
         tb.*,
-        -- Diferencia en minutos: positivo = tarde, negativo = temprano
-        -- NULL cuando no hay itinerario disponible
-        CASE
-            WHEN tb.scheduled_departure IS NOT NULL
-            THEN DATEDIFF(MINUTE, tb.scheduled_departure, tb.actual_departure)
-            ELSE NULL
-        END AS delay_minutes
+        tpt.terminal_name,
+        tpt.route_id,
+        tpt.route_name
     FROM trip_base tb
+    LEFT JOIN cte_terminal_pre_viaje tpt
+        ON  tpt.trip_id = tb.trip_id
+        AND tpt.rn      = 1
+),
+
+delay_calc AS (
+    SELECT
+        tc.*,
+        -- ITINERARIO: pendiente dataset AMA
+        CAST(NULL AS DATETIME)                      AS scheduled_departure,
+        -- Diferencia en minutos: positivo = tarde, negativo = temprano
+        -- NULL hasta que haya itinerario disponible
+        CAST(NULL AS INT)                           AS delay_minutes
+    FROM trip_con_terminal tc
 ),
 
 classified AS (
@@ -68,8 +107,8 @@ classified AS (
         END AS departure_status,
         -- --------------------------------------------------------
         -- CENTRAL: TODO — reemplazar 'CENTRAL_DUMMY' con el
-        -- zone_name o zone_id real una vez que AMA confirme cuál
-        -- es la estación Central. Mientras tanto devuelve 0 (false).
+        -- zone_name real una vez que AMA confirme cuál es la
+        -- estación Central (el terminal_name ya viene de geotab_zone).
         -- --------------------------------------------------------
         CASE
             WHEN dc.terminal_name = 'CENTRAL_DUMMY' THEN CAST(1 AS BIT)
