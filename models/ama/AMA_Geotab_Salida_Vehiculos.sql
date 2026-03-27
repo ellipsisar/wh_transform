@@ -1,7 +1,7 @@
 {{ config(
     materialized='incremental',
     incremental_strategy='append',
-    dist='ROUND_ROBIN',
+    dist='HASH(route_id)',
     index='CLUSTERED COLUMNSTORE INDEX',
     tag='dashboard_AMA',
     pre_hook="{% if is_incremental() %}\
@@ -9,9 +9,6 @@
         WHERE [date] >= DATEADD(DAY, -1, CAST(GETDATE() AS DATE))\
     {% else %} SELECT 1 AS noop {% endif %}"
 ) }}
-
--- Nota: dist='ROUND_ROBIN' mientras route_id sea NULL (sin dataset de itinerario).
--- Cambiar a dist='HASH(route_id)' cuando el dataset de AMA esté disponible.
 
 WITH base AS (
     SELECT
@@ -33,8 +30,8 @@ WITH base AS (
 
 SELECT
     ISNULL([date], CAST('1900-01-01' AS DATETIME))        AS [date],          -- datetime not null
-    CAST(route_id   AS NVARCHAR(100))                     AS route_id,        -- nvarchar (NULL hasta itinerario)
-    CAST(route_name AS NVARCHAR(100))                     AS route_name,      -- nvarchar (NULL hasta itinerario)
+    CAST(route_id   AS NVARCHAR(100))                     AS route_id,
+    CAST(route_name AS NVARCHAR(100))                     AS route_name,
     ISNULL(SUM(CASE WHEN departure_status = 'ON_SCHEDULE'
                     THEN 1 ELSE 0 END), 0)                AS cantidad_on_schedule_departure,
     ISNULL(SUM(CASE WHEN departure_status = 'DELAYED'
