@@ -3,14 +3,82 @@
     incremental_strategy='append',
     dist='HASH(zone_id)',
     index='CLUSTERED COLUMNSTORE INDEX',
-    tag='dashboard_AMA',
+    tag=['dashboard_AMA','terminales_AMA'],
     pre_hook="{% if is_incremental() %}\
         DELETE FROM {{ this }}\
         WHERE event_date >= DATEADD(DAY, -1, CAST(GETDATE() AS DATE))\
     {% else %} SELECT 1 AS noop {% endif %}"
 ) }}
 
-WITH
+WITH pos AS (
+    SELECT
+        zone_id,
+        zone_name,
+        zone_types_json,
+        external_reference,
+        must_identify_stops,
+        active_from,
+        active_to,
+        -- posición del token "id" dentro del JSON
+        CHARINDEX('"id"', zone_types_json)          AS id_key_pos
+    FROM {{ source('geotab', 'geotab_zone') }}
+),
+
+val_pos AS (
+    SELECT
+        *,
+        -- posición del primer " que abre el valor del id (sólo relevante si id_key_pos > 0)
+        CASE
+            WHEN id_key_pos > 0
+            THEN CHARINDEX('"', zone_types_json,
+                     CHARINDEX(':', zone_types_json, id_key_pos + 4) + 1)
+            ELSE 0
+        END                                         AS val_start_pos
+    FROM pos
+),
+
+stg_geotab__zone AS (
+SELECT
+    z.zone_id,
+    z.zone_name,
+    z.external_reference,
+    z.must_identify_stops,
+    z.active_from,
+    z.active_to,
+
+    -- Referencia al tipo: ID custom o nombre built-in
+    CASE
+        WHEN z.id_key_pos > 0
+            -- Custom: [{"id": "b22"}] → extraer valor entre las comillas del id
+            THEN SUBSTRING(
+                z.zone_types_json,
+                z.val_start_pos + 1,
+                CHARINDEX('"', z.zone_types_json, z.val_start_pos + 1) - z.val_start_pos - 1
+            )
+        ELSE
+            -- Built-in: ["ZoneTypeCustomerId"] → extraer el nombre entre [" y "]
+            SUBSTRING(z.zone_types_json, 3, LEN(z.zone_types_json) - 4)
+    END                                             AS zone_type_ref,
+
+    CAST(
+        CASE WHEN z.id_key_pos > 0 THEN 1 ELSE 0 END
+    AS BIT)                                         AS is_custom_type,
+
+    -- Nombre del tipo resuelto (solo para tipos custom con registro en geotab_zone_type)
+    zt.zone_type_name
+
+FROM val_pos z
+LEFT JOIN {{ source('geotab', 'geotab_zone_type') }} zt
+    ON zt.zone_type_id = CASE
+        WHEN z.id_key_pos > 0
+        THEN SUBSTRING(
+            z.zone_types_json,
+            z.val_start_pos + 1,
+            CHARINDEX('"', z.zone_types_json, z.val_start_pos + 1) - z.val_start_pos - 1
+        )
+        ELSE NULL
+    END),
+
 
 cte_zonas AS (
     SELECT
@@ -20,7 +88,7 @@ cte_zonas AS (
         z.external_reference            AS terminal_codigo_externo,
         z.active_from                   AS zona_activa_desde,
         z.active_to                     AS zona_activa_hasta
-    FROM {{ ref('stg_geotab__zone') }} z
+    FROM stg_geotab__zone z
     WHERE (z.active_to IS NULL OR z.active_to > GETDATE())
       -- AND z.zone_type_name = 'Terminal'
 ),

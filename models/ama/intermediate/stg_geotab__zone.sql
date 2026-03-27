@@ -1,6 +1,8 @@
 {{
-    config(materialized='ephemeral')
-}}
+    config(
+    materialized='ephemeral',
+    tag=['dashboard_AMA','terminales_AMA']
+)}}
 
 -- Parseo de zone_types_json → zone_type_ref + join a geotab_zone_type.
 --
