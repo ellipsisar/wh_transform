@@ -41,11 +41,11 @@ cte_regla_zona AS (
         z.zone_id,
         z.zone_name,
         r.route_id,
-        r.route_name,
+        r.name as route_name,
         ROW_NUMBER() OVER (PARTITION BY ru.rule_id ORDER BY r.route_id) AS rn
     FROM {{ source('geotab', 'geotab_rule') }} ru
     JOIN {{ source('geotab', 'geotab_zone') }} z
-        ON z.zone_name = ru.rule_name
+        ON z.zone_name = ru.name
     LEFT JOIN {{ source('geotab', 'geotab_route_plan_item') }} rpi
         ON rpi.zone_id = z.zone_id
     LEFT JOIN {{ source('geotab', 'geotab_route') }} r

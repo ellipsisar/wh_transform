@@ -32,7 +32,7 @@ cte_zona_ruta AS (
     SELECT
         rpi.zone_id,
         r.route_id,
-        r.route_name,
+        r.name as route_name,
         ROW_NUMBER() OVER (PARTITION BY rpi.zone_id ORDER BY r.route_id) AS rn
     FROM {{ source('geotab', 'geotab_route_plan_item') }} rpi
     INNER JOIN {{ source('geotab', 'geotab_route') }} r ON r.route_id = rpi.route_id
