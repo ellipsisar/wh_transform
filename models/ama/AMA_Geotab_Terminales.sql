@@ -16,14 +16,13 @@ cte_zonas AS (
     SELECT
         z.zone_id,
         z.zone_name,
-        t.zone_type_name                AS zone_type,
+        z.zone_type_name                AS zone_type,
         z.external_reference            AS terminal_codigo_externo,
         z.active_from                   AS zona_activa_desde,
         z.active_to                     AS zona_activa_hasta
-    FROM {{ source('geotab', 'geotab_zone') }} z
-    LEFT JOIN {{ source('geotab', 'geotab_zone_type') }} t ON z.zone_id = t.zone_type_id
+    FROM {{ ref('stg_geotab__zone') }} z
     WHERE (z.active_to IS NULL OR z.active_to > GETDATE())
-      -- AND zone_type = 'Terminal'
+      -- AND z.zone_type_name = 'Terminal'
 ),
 
 cte_zona_ruta AS (
