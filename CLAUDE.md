@@ -54,17 +54,17 @@ geotab_log_record + geotab_device → AMA_Geotab_Exceso_Velocidad
 geotab_device + geotab_device_status_info + geotab_log_record + geotab_trip → AMA_Geotab_GPS_Comunicacion
 ```
 
-**Pending work**: `AMA_Geotab_Viajes` has `route_id`, `route_name`, `terminal_name`, and `scheduled_departure` hardcoded as NULL — awaiting AMA itinerary dataset. `is_central_departure` uses a `'CENTRAL_DUMMY'` placeholder. Speed violation threshold is hardcoded at 80 km/h.
+**Pending work**: `is_central_departure` usa `'SGDO'` como placeholder — confirmar con AMA el código exacto de la terminal Central. Speed violation threshold is hardcoded at 80 km/h.
+
+**Itinerario AMA** (`dbo.ama_itinerario`): disponible desde 2026-03-26. Join: `ama_itinerario.tren = geotab_device.device_name`. Se filtra `orden_parada = 0` para obtener la terminal y hora de salida programada. Se matchea por día de semana (`servicio`: LUNES-VIERNES / SABADO / DOMINGO). Para viajes con múltiples turnos posibles, se elige el turno cuya hora programada sea más cercana a la salida real.
 
 **Synapse config per model**:
 | Model | dist | index | Incremental window |
 |---|---|---|---|
 | `AMA_Geotab_Viajes` | `HASH(vehicle_id)` | CCI | last 1 day on `trip_start` |
-| `AMA_Geotab_Salida_Vehiculos` | `ROUND_ROBIN`* | CCI | last 1 day on `[date]` |
+| `AMA_Geotab_Salida_Vehiculos` | `HASH(route_id)` | CCI | last 1 day on `[date]` |
 | `AMA_Geotab_Exceso_Velocidad` | `HASH(device_id)` | CCI | last 1 day on `log_datetime` |
 | `AMA_Geotab_GPS_Comunicacion` | `HASH(device_id)` | CCI | daily snapshot by `snapshot_date` |
-
-*`AMA_Geotab_Salida_Vehiculos`: cambiar a `HASH(route_id)` cuando el dataset de itinerario de AMA esté disponible.
 
 **GPS_Comunicacion es un snapshot diario**: grain `(device_id, snapshot_date)`. `pre_hook` elimina el snapshot de hoy antes de re-insertar — idempotente. Los campos rolling (viajes_ultimos_30_dias, etc.) siempre se calculan desde el histórico completo de la fuente.
 

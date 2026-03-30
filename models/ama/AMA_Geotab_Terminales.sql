@@ -3,27 +3,106 @@
     incremental_strategy='append',
     dist='HASH(zone_id)',
     index='CLUSTERED COLUMNSTORE INDEX',
-    tag='dashboard_AMA',
+    tags=['dashboard_AMA','terminales_AMA'],
     pre_hook="{% if is_incremental() %}\
         DELETE FROM {{ this }}\
         WHERE event_date >= DATEADD(DAY, -1, CAST(GETDATE() AS DATE))\
     {% else %} SELECT 1 AS noop {% endif %}"
 ) }}
 
-WITH
-
-cte_zonas AS (
+WITH pos AS (
     SELECT
         zone_id,
         zone_name,
-        zone_type_name as zone_type,
-        external_reference              AS terminal_codigo_externo,
-        active_from                     AS zona_activa_desde,
-        active_to                       AS zona_activa_hasta
-    FROM {{ source('geotab', 'geotab_zone') }} z
-    LEFT JOIN {{ source('geotab', 'geotab_zone_type') }} t ON z.zone_id = t.zone_type_id
-    WHERE (active_to IS NULL OR active_to > GETDATE())
-      -- AND zone_type = 'Terminal'
+        zone_types_json,
+        external_reference,
+        must_identify_stops,
+        active_from,
+        active_to,
+        -- posición del token "id" dentro del JSON
+        CHARINDEX('"id"', zone_types_json)          AS id_key_pos
+    FROM {{ source('geotab', 'geotab_zone') }}
+),
+
+val_pos AS (
+    SELECT
+        *,
+        -- posición del primer " que abre el valor del id (sólo relevante si id_key_pos > 0)
+        CASE
+            WHEN id_key_pos > 0
+            THEN CHARINDEX('"', zone_types_json,
+                     CHARINDEX(':', zone_types_json, id_key_pos + 4) + 1)
+            ELSE 0
+        END                                         AS val_start_pos
+    FROM pos
+),
+
+stg_geotab__zone AS (
+SELECT
+    z.zone_id,
+    z.zone_name,
+    z.external_reference,
+    z.must_identify_stops,
+    z.active_from,
+    z.active_to,
+
+    -- Referencia al tipo: ID custom o nombre built-in
+    CASE
+        WHEN z.id_key_pos > 0
+            -- Custom: [{"id": "b22"}] → extraer valor entre las comillas del id
+            THEN SUBSTRING(
+                z.zone_types_json,
+                z.val_start_pos + 1,
+                CHARINDEX('"', z.zone_types_json, z.val_start_pos + 1) - z.val_start_pos - 1
+            )
+        ELSE
+            -- Built-in: ["ZoneTypeCustomerId"] → extraer el nombre entre [" y "]
+            SUBSTRING(z.zone_types_json, 3, LEN(z.zone_types_json) - 4)
+    END                                             AS zone_type_ref,
+
+    CAST(
+        CASE WHEN z.id_key_pos > 0 THEN 1 ELSE 0 END
+    AS BIT)                                         AS is_custom_type,
+
+    -- Nombre del tipo resuelto (solo para tipos custom con registro en geotab_zone_type)
+    zt.zone_type_name
+
+FROM val_pos z
+LEFT JOIN {{ source('geotab', 'geotab_zone_type') }} zt
+    ON zt.zone_type_id = CASE
+        WHEN z.id_key_pos > 0
+        THEN SUBSTRING(
+            z.zone_types_json,
+            z.val_start_pos + 1,
+            CHARINDEX('"', z.zone_types_json, z.val_start_pos + 1) - z.val_start_pos - 1
+        )
+        ELSE NULL
+    END),
+
+
+cte_zonas AS (
+    SELECT
+        z.zone_id,
+        z.zone_name,
+        z.zone_type_name                AS zone_type,
+        z.external_reference            AS terminal_codigo_externo,
+        z.active_from                   AS zona_activa_desde,
+        z.active_to                     AS zona_activa_hasta
+    FROM stg_geotab__zone z
+    WHERE (z.active_to IS NULL OR z.active_to > GETDATE())
+      -- AND z.zone_type_name = 'Terminal'
+),
+
+cte_zona_ruta AS (
+    -- Resuelve zone_id → route vía route_plan_item.
+    -- ROW_NUMBER deduplica en caso de que una zona pertenezca a múltiples rutas.
+    SELECT
+        rpi.zone_id,
+        r.route_id,
+        r.name as route_name,
+        ROW_NUMBER() OVER (PARTITION BY rpi.zone_id ORDER BY r.route_id) AS rn
+    FROM {{ source('geotab', 'geotab_route_plan_item') }} rpi
+    INNER JOIN {{ source('geotab', 'geotab_route') }} r ON r.route_id = rpi.route_id
 ),
 
 cte_rules AS (
@@ -33,10 +112,14 @@ cte_rules AS (
         z.zone_id,
         z.zone_name,
         z.zone_type,
-        z.terminal_codigo_externo
+        z.terminal_codigo_externo,
+        zr.route_id,
+        zr.route_name
     FROM {{ source('geotab', 'geotab_rule') }} r
     LEFT JOIN cte_zonas z
         ON z.zone_name = r.name
+    LEFT JOIN cte_zona_ruta zr
+        ON zr.zone_id = z.zone_id AND zr.rn = 1
     -- Filtrar solo reglas de tipo ZoneStop
     -- WHERE r.base_type = 'ZoneStop'
 ),
@@ -52,6 +135,8 @@ cte_eventos AS (
         cr.zone_name,
         cr.zone_type,
         cr.terminal_codigo_externo,
+        cr.route_id,
+        cr.route_name,
         CONVERT(DATETIME, ee.active_from)           AS active_from,
         CONVERT(DATETIME, ee.active_to)             AS active_to,
         CASE
@@ -141,9 +226,11 @@ SELECT
     vs.next_trip_start,
     DATEDIFF(MINUTE, ev.active_to, vs.next_trip_start)     AS minutos_hasta_viaje,
 
+    -- Ruta asociada al terminal (vía geotab_route_plan_item → geotab_route)
+    ev.route_id,
+    ev.route_name,
+
     -- ITINERARIO: pendiente dataset AMA
-    CAST(NULL AS NVARCHAR(100))                             AS route_id,
-    CAST(NULL AS NVARCHAR(100))                             AS route_name,
     CAST(NULL AS DATETIME)                                  AS scheduled_departure,
     CAST(NULL AS INT)                                       AS delay_minutes,
     CAST(NULL AS NVARCHAR(50))                              AS departure_status
