@@ -3,7 +3,7 @@
     incremental_strategy='append',
     dist='HASH(zone_id)',
     index='CLUSTERED COLUMNSTORE INDEX',
-    tag=['dashboard_AMA','terminales_AMA'],
+    tags=['dashboard_AMA','terminales_AMA'],
     pre_hook="{% if is_incremental() %}\
         DELETE FROM {{ this }}\
         WHERE event_date >= DATEADD(DAY, -1, CAST(GETDATE() AS DATE))\

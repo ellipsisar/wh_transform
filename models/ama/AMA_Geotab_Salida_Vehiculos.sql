@@ -3,7 +3,7 @@
     incremental_strategy='append',
     dist='HASH(route_id)',
     index='CLUSTERED COLUMNSTORE INDEX',
-    tag='dashboard_AMA',
+    tags=['dashboard_AMA'],
     pre_hook="{% if is_incremental() %}\
         DELETE FROM {{ this }}\
         WHERE [date] >= DATEADD(DAY, -1, CAST(GETDATE() AS DATE))\

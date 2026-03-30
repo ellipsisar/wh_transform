@@ -3,7 +3,7 @@
     incremental_strategy='append',
     dist='HASH(device_id)',
     index='CLUSTERED COLUMNSTORE INDEX',
-    tag='dashboard_AMA',
+    tags=['dashboard_AMA'],
     pre_hook="{% if is_incremental() %}\
         DELETE FROM {{ this }}\
         WHERE snapshot_date = CAST(GETDATE() AS DATE)\
