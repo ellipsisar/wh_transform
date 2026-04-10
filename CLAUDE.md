@@ -93,6 +93,25 @@ dbt run --profiles-dir . --full-refresh -s tag:dashboard_AMA
 
 Migration of 3 stored procedure phases to dbt. All fact models use `materialized='incremental'`, `incremental_strategy='append'`, `dist='ROUND_ROBIN'`, `index='CLUSTERED COLUMNSTORE INDEX'`, and SCD Type 2 via a `CurrentVersion` flag.
 
+**SP-to-dbt mapping**:
+| Phase | Stored Procedure | dbt Equivalent |
+|---|---|---|
+| Fase I (daily) | `Sonnell_UpdateSubsystemCostsVersions` | `fct_sonnell_subsystem_cost` (default run) |
+| Fase I (reprocess) | `Sonnell_CalculateSubsystemCostsByMonth` | model with `sonnell_reprocess` vars or macro |
+| Fase II (daily) | `Sonnell_UpdateOffsetVersions` | `fct_sonnell_subsystem_offset` (default run) |
+| Fase II (reprocess) | `Sonnell_CalculateOffsetsByMonth` + `Sonnell_FetchOffsetValuesByMonth` | model with `sonnell_offset_reprocess` vars or macro |
+| Fase III SP1 (daily) | `Sonnell_UpdateInvoiceVersions` | `fct_sonnell_invoice_totals` (default run) |
+| Fase III SP2 (daily stats) | `Sonnell_CalculateInvoiceTotalsStatColumns` | `fct_sonnell_invoice_totals` post_hooks |
+| Fase III SP3 (reprocess) | `Sonnell_CalculateInvoiceTotalsByMonth` | model with `sonnell_invoice_reprocess` vars or macro |
+
+**Staging model transforms**:
+| Model | Transforms |
+|---|---|
+| `stg_sonnell_daily_summary` | Renames `Subsystem`→`GroupId`, `TripCount`→`NumTrips`; converts `RevenueSeconds`→`RevenueHours` (÷3600) and `RevenueMeters`→`RevenueMiles` (÷1609.34) |
+| `stg_sonnell_rates` | Pass-through |
+| `stg_sonnell_checkpoints` | Pass-through |
+| `stg_sonnell_parameters` | Pass-through |
+
 **Sources** (dbo schema): `SonnellDailySummary`, `SonnellRates`, `SonnellCheckpoints`, `SonnellParameters`, `SonnellOffsetApplied`
 
 **Raw sources** (raw schema): `sonnell_trip`, `sonnell_subsystem`, `sonnell_checkpoin` — external tables from data lake (Parquet)
@@ -126,6 +145,19 @@ Each fact model supports 3 modes controlled by dbt vars and `is_incremental()`:
 | `fct_sonnell_subsystem_cost` | `sonnell_reprocess` | `sonnell_reprocess_month` | `sonnell_reprocess_year` |
 | `fct_sonnell_subsystem_offset` | `sonnell_offset_reprocess` | `sonnell_offset_reprocess_month` | `sonnell_offset_reprocess_year` |
 | `fct_sonnell_invoice_totals` | `sonnell_invoice_reprocess` | `sonnell_invoice_reprocess_month` | `sonnell_invoice_reprocess_year` |
+
+### Daily vs Reprocess Behavioral Differences
+
+| Aspect | Daily incremental | Monthly reprocess |
+|---|---|---|
+| Version handling | `pre_hook` marks old rows `CurrentVersion=0` | `pre_hook` DELETEs rows for the month |
+| `CurrentVersion` filter on sources | `= 1` (current data only) | No filter (all versions) |
+| `IsActive` on `SonnellRates` (MU) | Not applied | `IsActive = 1` |
+| InvoiceID generation | One `NEWID()` per `(Year, Month)` via CTE | Single `NEWID()` for entire month via `CROSS JOIN` |
+| InvoiceID propagation | JOIN by `(Year, Month, Subsystem)` | `CROSS JOIN` to all rows in the month |
+| `SonnellOffsetApplied` | INSERT with NOT EXISTS guard | DELETE first, then INSERT |
+| Stats (Trips, Revenue, Checkpoints) | `CurrentVersion = 1` filter on cost/offset | No `CurrentVersion` filter |
+| Scope | All closed months with new data | Single specified month |
 
 ### Invoice Totals Model Details
 
@@ -216,3 +248,5 @@ models:
 - **4% offset cap rule is informational only** — it does NOT modify invoice line Totals; it only writes to `SonnellOffsetApplied`
 - **Columns that are never populated**: `ReenueMiles` (typo column), `ApprovalStatus`, `PaymentStatus` in the original SonnellInvoiceTotals table
 - **`CurrentVersion` is `BIT` (0/1) not INT** — use `CAST(1 AS BIT)` in SELECT lists
+- **AMA models have no `schema.yml`** — the `models/ama/` directory has no schema file, violating the project's coding rule. Adding one is pending work.
+- **`dbt_project.yml` has no AMA section** — AMA models are not listed under `models.wh_transform` in `dbt_project.yml`; they rely entirely on inline `{{ config() }}` blocks for materialization and distribution settings.
