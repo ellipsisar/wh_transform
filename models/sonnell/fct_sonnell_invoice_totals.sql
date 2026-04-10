@@ -281,6 +281,21 @@
                 AND inv.Routes IN ('E20', '20', 'E30', '30')
                 AND inv.[Month] = {{ var('sonnell_invoice_reprocess_month') }}
                 AND inv.[Year] = {{ var('sonnell_invoice_reprocess_year') }}
+            {% elif is_incremental() %}
+            UPDATE inv
+            SET inv.RevenueMiles = agg.TotalRevenueMiles, inv.RevenueHours = agg.TotalRevenueHours
+            FROM {{ this }} AS inv
+            INNER JOIN (
+                SELECT [Year], [Month], RouteId,
+                       SUM(RevenueMiles) AS TotalRevenueMiles, SUM(RevenueHours) AS TotalRevenueHours
+                FROM {{ ref('fct_sonnell_subsystem_cost') }}
+                WHERE CurrentVersion = 1 AND RouteId IN ('E20', '20', 'E30', '30')
+                GROUP BY [Year], [Month], RouteId
+            ) AS agg ON inv.[Year] = agg.[Year] AND inv.[Month] = agg.[Month]
+                AND inv.Routes = agg.RouteId
+            WHERE inv.[Type] = 'Regular'
+                AND inv.Routes IN ('E20', '20', 'E30', '30')
+                AND inv.CurrentVersion = 1
             {% endif %}",
             "{% if is_incremental() and not var('sonnell_invoice_reprocess', false) %}
             UPDATE inv

@@ -29,7 +29,10 @@ models/
 │   ├── AMA_Geotab_Viajes.sql           # Trip detail with delay classification
 │   ├── AMA_Geotab_Salida_Vehiculos.sql # Daily departure KPIs (refs AMA_Geotab_Viajes)
 │   ├── AMA_Geotab_Exceso_Velocidad.sql # Speed violations (>80 km/h)
-│   └── AMA_Geotab_GPS_Comunicacion.sql # Device communication & GPS status
+│   ├── AMA_Geotab_GPS_Comunicacion.sql # Device communication & GPS status
+│   ├── AMA_Geotab_Terminales.sql       # Terminal dwell events (exception events)
+│   └── intermediate/
+│       └── stg_geotab__zone.sql        # Ephemeral: parses zone_types_json
 ├── sources/               # Source YAML definitions (sonnell.yml, gtfs.yml, korbato.yml, tdev.yml, geotab.yml)
 ├── dimOperators.sql       # Legacy model (root level, no schema file)
 ├── dimRoutes.sql          # Legacy model (root level, no schema file)
@@ -43,15 +46,17 @@ macros/
 
 ### AMA/Geotab Pipeline
 
-Dashboard views for AMA fleet monitoring, all `materialized='view'`, tagged `dashboard_AMA`. Source schema: `dbo` (source name: `geotab`).
+Dashboard views for AMA fleet monitoring, tagged `dashboard_AMA`. Source schema: `dbo` (source name: `geotab`).
 
-**Geotab source tables used**: `geotab_trip`, `geotab_device`, `geotab_device_status_info`, `geotab_log_record`
+**Geotab source tables registered** (`models/sources/geotab.yml`): `geotab_trip`, `geotab_device`, `geotab_device_status_info`, `geotab_log_record`, `geotab_exception_event`, `geotab_zone`, `geotab_zone_type`, `geotab_rule`, `geotab_route`, `geotab_route_plan_item`, `geotab_fault_data`, `geotab_group`, `geotab_status_data`, `ama_itinerario`
 
 **Model dependencies**:
 ```
 geotab_trip + geotab_device → AMA_Geotab_Viajes → AMA_Geotab_Salida_Vehiculos
 geotab_log_record + geotab_device → AMA_Geotab_Exceso_Velocidad
 geotab_device + geotab_device_status_info + geotab_log_record + geotab_trip → AMA_Geotab_GPS_Comunicacion
+geotab_exception_event + geotab_rule + geotab_zone + geotab_zone_type + geotab_route_plan_item + geotab_route + geotab_device + geotab_trip
+  → stg_geotab__zone (ephemeral) → AMA_Geotab_Terminales
 ```
 
 **Pending work**: `is_central_departure` usa `'SGDO'` como placeholder — confirmar con AMA el código exacto de la terminal Central. Speed violation threshold is hardcoded at 80 km/h.
@@ -59,23 +64,27 @@ geotab_device + geotab_device_status_info + geotab_log_record + geotab_trip → 
 **Itinerario AMA** (`dbo.ama_itinerario`): disponible desde 2026-03-26. Join: `ama_itinerario.tren = geotab_device.device_name`. Se filtra `orden_parada = 0` para obtener la terminal y hora de salida programada. Se matchea por día de semana (`servicio`: LUNES-VIERNES / SABADO / DOMINGO). Para viajes con múltiples turnos posibles, se elige el turno cuya hora programada sea más cercana a la salida real.
 
 **Synapse config per model**:
-| Model | dist | index | Incremental window |
-|---|---|---|---|
-| `AMA_Geotab_Viajes` | `HASH(vehicle_id)` | CCI | last 1 day on `trip_start` |
-| `AMA_Geotab_Salida_Vehiculos` | `HASH(route_id)` | CCI | last 1 day on `[date]` |
-| `AMA_Geotab_Exceso_Velocidad` | `HASH(device_id)` | CCI | last 1 day on `log_datetime` |
-| `AMA_Geotab_GPS_Comunicacion` | `HASH(device_id)` | CCI | daily snapshot by `snapshot_date` |
+| Model | dist | index | Incremental window | Tags |
+|---|---|---|---|---|
+| `AMA_Geotab_Viajes` | `HASH(vehicle_id)` | CCI | last 1 day on `trip_start` | `dashboard_AMA` |
+| `AMA_Geotab_Salida_Vehiculos` | `HASH(route_id)` | CCI | last 1 day on `[date]` | `dashboard_AMA` |
+| `AMA_Geotab_Exceso_Velocidad` | `HASH(device_id)` | CCI | last 1 day on `log_datetime` | `dashboard_AMA` |
+| `AMA_Geotab_GPS_Comunicacion` | `HASH(device_id)` | CCI | daily snapshot by `snapshot_date` | `dashboard_AMA` |
+| `AMA_Geotab_Terminales` | `HASH(zone_id)` | CCI | last 1 day on `event_date` | `dashboard_AMA`, `terminales_AMA` |
+| `stg_geotab__zone` (ephemeral) | — | — | — | `dashboard_AMA`, `terminales_AMA` |
 
 **GPS_Comunicacion es un snapshot diario**: grain `(device_id, snapshot_date)`. `pre_hook` elimina el snapshot de hoy antes de re-insertar — idempotente. Los campos rolling (viajes_ultimos_30_dias, etc.) siempre se calculan desde el histórico completo de la fuente.
+
+**AMA_Geotab_Terminales**: tracks dwell events at terminals (exception events). Resolution chain: `geotab_exception_event` → `geotab_rule` → zone (via `stg_geotab__zone` ephemeral) → `geotab_route_plan_item` → `geotab_route`. Joins next trip start within 4 hours of terminal exit. `stg_geotab__zone` (ephemeral, `models/ama/intermediate/`) parses `zone_types_json` via `CHARINDEX`/`SUBSTRING` since Geotab stores zone type as JSON (two formats: built-in `["ZoneTypeCustomerId"]` vs custom `[{"id": "b22"}]`). Itinerario fields (`scheduled_departure`, `delay_minutes`, `departure_status`) are placeholder NULLs pending AMA dataset integration.
 
 **Incremental pattern** (todos los modelos): `pre_hook DELETE` del día anterior + `append`. Nunca MERGE. Idempotente ante re-ejecuciones del mismo día.
 
 **Run AMA models**:
 ```bash
-dbt run -s tag:dashboard_AMA
+dbt run --profiles-dir . -s tag:dashboard_AMA
 
 # Full refresh (reconstruye desde cero)
-dbt run --full-refresh -s tag:dashboard_AMA
+dbt run --profiles-dir . --full-refresh -s tag:dashboard_AMA
 ```
 
 ---
@@ -139,26 +148,28 @@ Post-hooks (10 sequential): InvoiceID generation → SonnellOffsetApplied DELETE
 
 ## Common Commands
 
+All commands require `--profiles-dir .` unless `profiles.yml` is symlinked to `~/.dbt/`.
+
 ```bash
 # Run all Sonnell models (tagged)
-dbt run -s tag:sonnell
+dbt run --profiles-dir . -s tag:sonnell
 
 # Full refresh
-dbt run --full-refresh -s tag:sonnell
+dbt run --profiles-dir . --full-refresh -s tag:sonnell
 
 # Monthly reprocess (example: January 2026)
-dbt run -s fct_sonnell_invoice_totals \
+dbt run --profiles-dir . -s fct_sonnell_invoice_totals \
   --vars '{sonnell_invoice_reprocess: true, sonnell_invoice_reprocess_month: 1, sonnell_invoice_reprocess_year: 2026}'
 
 # Reprocess via macro (alternative)
-dbt run-operation sonnell_recalc_invoice_by_month --args '{"year": 2026, "month": 1}'
+dbt run-operation --profiles-dir . sonnell_recalc_invoice_by_month --args '{"year": 2026, "month": 1}'
 
 # Run/test a single model
-dbt run --select <model_name>
-dbt test --select <model_name>
+dbt run --profiles-dir . --select <model_name>
+dbt test --profiles-dir . --select <model_name>
 
 # Compile without executing
-dbt compile --select <model_name>
+dbt compile --profiles-dir . --select <model_name>
 ```
 
 ---
@@ -201,8 +212,6 @@ models:
 ## Known Gotchas
 
 - **`profiles.yml` is at repo root**, not `~/.dbt/` — pass `--profiles-dir .` or symlink if needed
-- **`stg_SonnellDailySummary` vs `stg_sonnell_daily_summary`**: two staging files exist for the same source (PascalCase legacy + snake_case new). The invoice model currently refs `stg_SonnellDailySummary`.
-- **`stg_SonnellCheckpoints`**: similarly has a PascalCase legacy file alongside the snake_case version
 - **Post-hooks are skipped on full refresh** — InvoiceID, Trips, Timestamps remain NULL until next incremental run
 - **4% offset cap rule is informational only** — it does NOT modify invoice line Totals; it only writes to `SonnellOffsetApplied`
 - **Columns that are never populated**: `ReenueMiles` (typo column), `ApprovalStatus`, `PaymentStatus` in the original SonnellInvoiceTotals table
