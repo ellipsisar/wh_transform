@@ -32,31 +32,31 @@ SELECT
     ISNULL([date], CAST('1900-01-01' AS DATETIME))        AS [date],          -- datetime not null
     CAST(route_id   AS NVARCHAR(100))                     AS route_id,
     CAST(route_name AS NVARCHAR(100))                     AS route_name,
-    ISNULL(SUM(CASE WHEN departure_status = 'ON_SCHEDULE'
-                    THEN 1 ELSE 0 END), 0)                AS cantidad_on_schedule_departure,
-    ISNULL(SUM(CASE WHEN departure_status = 'DELAYED'
-                    THEN 1 ELSE 0 END), 0)                AS cantidad_delayed_departure,
+    COUNT(DISTINCT CASE WHEN departure_status = 'ON_SCHEDULE'
+                        THEN vehicle_id END)              AS cantidad_on_schedule_departure,
+    COUNT(DISTINCT CASE WHEN departure_status = 'DELAYED'
+                        THEN vehicle_id END)              AS cantidad_delayed_departure,
     COUNT(trip_id)                                        AS total_departures,
-    ISNULL(SUM(CASE WHEN departure_status = 'EARLY'
-                    THEN 1 ELSE 0 END), 0)                AS cantidad_early_departure,
-    ISNULL(SUM(CASE WHEN departure_status = 'SIN_ITINERARIO'
-                    THEN 1 ELSE 0 END), 0)                AS cantidad_sin_itinerario,
+    COUNT(DISTINCT CASE WHEN departure_status = 'EARLY'
+                        THEN vehicle_id END)              AS cantidad_early_departure,
+    COUNT(DISTINCT CASE WHEN departure_status = 'SIN_ITINERARIO'
+                        THEN vehicle_id END)              AS cantidad_sin_itinerario,
     CAST(
         CASE
-            WHEN SUM(CASE WHEN departure_status <> 'SIN_ITINERARIO' THEN 1 ELSE 0 END) = 0
+            WHEN COUNT(DISTINCT CASE WHEN departure_status <> 'SIN_ITINERARIO' THEN vehicle_id END) = 0
             THEN NULL
             ELSE 100.0
-                 * SUM(CASE WHEN departure_status = 'ON_SCHEDULE' THEN 1 ELSE 0 END)
-                 / SUM(CASE WHEN departure_status <> 'SIN_ITINERARIO' THEN 1 ELSE 0 END)
+                 * COUNT(DISTINCT CASE WHEN departure_status = 'ON_SCHEDULE' THEN vehicle_id END)
+                 / COUNT(DISTINCT CASE WHEN departure_status <> 'SIN_ITINERARIO' THEN vehicle_id END)
         END
     AS DECIMAL(5, 2))                                     AS pct_on_schedule,
     CAST(
         CASE
-            WHEN SUM(CASE WHEN departure_status <> 'SIN_ITINERARIO' THEN 1 ELSE 0 END) = 0
+            WHEN COUNT(DISTINCT CASE WHEN departure_status <> 'SIN_ITINERARIO' THEN vehicle_id END) = 0
             THEN NULL
             ELSE 100.0
-                 * SUM(CASE WHEN departure_status = 'DELAYED' THEN 1 ELSE 0 END)
-                 / SUM(CASE WHEN departure_status <> 'SIN_ITINERARIO' THEN 1 ELSE 0 END)
+                 * COUNT(DISTINCT CASE WHEN departure_status = 'DELAYED' THEN vehicle_id END)
+                 / COUNT(DISTINCT CASE WHEN departure_status <> 'SIN_ITINERARIO' THEN vehicle_id END)
         END
     AS DECIMAL(5, 2))                                     AS pct_delayed,
     CAST(
@@ -78,8 +78,8 @@ SELECT
     AS DECIMAL(8, 2))                                     AS avg_trip_duration_minutes,
     CAST(AVG(CAST(distance_km AS FLOAT))
     AS DECIMAL(8, 2))                                     AS avg_distance_km,
-    ISNULL(SUM(CASE WHEN is_central_departure = 1
-                    THEN 1 ELSE 0 END), 0)                AS cantidad_central_departures
+    COUNT(DISTINCT CASE WHEN is_central_departure = 1
+                        THEN vehicle_id END)              AS cantidad_central_departures
 
 FROM base
 GROUP BY [date], route_id, route_name
