@@ -3,7 +3,7 @@ version: 2
 sources:
   - name: geotab
     description: ""
-    schema: dbo
+    schema: staging
     tables:
       - name: geotab_device
       - name: geotab_device_status_info
@@ -18,4 +18,3 @@ sources:
       - name: geotab_zone
       - name: geotab_zone_type
       - name: geotab_rule
-      - name: ama_itinerario
