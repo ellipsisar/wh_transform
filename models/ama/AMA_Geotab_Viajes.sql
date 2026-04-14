@@ -23,11 +23,11 @@ WITH itinerario_salida AS (
         i.turno,
         i.parada            AS terminal_salida,
         i.hora              AS scheduled_hora
-    FROM {{ source('geotab', 'ama_itinerario') }} i
+    FROM {{ source('ama', 'AMA_Itinerario') }} i
     WHERE i.orden_parada = 0
       AND i._md_snapshot_date = (
           SELECT MAX(_md_snapshot_date)
-          FROM {{ source('geotab', 'ama_itinerario') }}
+          FROM {{ source('ama', 'AMA_Itinerario') }}
       )
 ),
 
