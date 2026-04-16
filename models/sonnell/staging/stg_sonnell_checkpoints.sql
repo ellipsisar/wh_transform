@@ -1,5 +1,9 @@
-{{ config(materialized='ephemeral') }}
-
+{{ config(
+    materialized='table',
+    tags=['sonnell'],
+    alias='SonnellCheckpoints'
+    ) 
+}}
 
 
 WITH keep AS (
@@ -106,7 +110,7 @@ SELECT
     ServiceDate, TripKey, ScheduleTrip, VehicleId, Subsystem, VisitKey, SequenceInDay,
     ArrivalTime, DepartureTime, ScheduledArrivaltime, ScheduleDepartureTime,
     SequenceInTrip, StopId, Compliant, GeneratedAt, GETDATE() AS CreatedAt,
-    CAST(FORMAT(mv.vers, 'yyyyMMdd') AS BIGINT) AS Version
+    CAST(FORMAT(mv.vers, 'yyyyMMdd') AS BIGINT) AS Version, CURRENT_TIMESTAMP as dbt_at
 FROM src
 JOIN keep k
   ON src.ServiceDate = k.svc_date

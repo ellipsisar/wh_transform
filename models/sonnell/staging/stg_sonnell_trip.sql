@@ -1,8 +1,7 @@
 {{ config(
     materialized='table',
     tags=['sonnell'],
-    alias='SonnellTrips',
-    schema='dbo'
+    alias='SonnellTrips'
     ) 
 }}
 
@@ -29,6 +28,7 @@ SELECT ROW_NUMBER() OVER (ORDER BY _md_processed_at) AS Id
     ,CAST(FORMAT(t._md_processed_at, 'yyyyMMdd') AS BIGINT) AS Version
       ,null as TempDataSeconds
       ,null as TempDataMeters
+      ,CURRENT_TIMESTAMP as dbt_at
 FROM {{ source('external', 'sonnell_trip') }} t
 JOIN keep k
     ON t.svc_date = k.svc_date
