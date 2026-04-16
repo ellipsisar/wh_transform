@@ -480,8 +480,8 @@ all_invoice AS (
         CAST(P2.RevenueMilesAmount + P2.RevenueHoursAmount AS DECIMAL(10,2)),
         CAST(NULL AS DECIMAL(10,2)),
         CAST('Regular' AS NVARCHAR(50)),
-        CAST(NULL AS DECIMAL(10,2)),
-        CAST(NULL AS DECIMAL(10,2)),
+        CAST(P2.RevenueMiles AS DECIMAL(10,2)),
+        CAST(P2.RevenueHours AS DECIMAL(10,2)),
         CAST(P2.EffectiveRateMiles AS DECIMAL(10,2)),
         CAST(P2.EffectiveRateHours AS DECIMAL(10,2)),
         CAST(NULL AS INT),
@@ -727,8 +727,6 @@ WITH mb_tc_inner AS (
     INNER JOIN {{ ref('fct_sonnell_subsystem_cost') }} AS B
         ON A.[Year] = B.[Year] AND A.[Month] = B.[Month] AND A.Subsystem = B.GroupId
     WHERE A.Subsystem IN ('MB', 'TC')
-        AND CAST(CONCAT(B.[Year], '-', B.[Month], '-01') AS DATE)
-            < CAST(CONCAT(DATEPART(YEAR, GETDATE()), '-', DATEPART(MONTH, GETDATE()), '-01') AS DATE)
         AND B.CurrentVersion = 1
         AND A.CurrentVersion = 1
     GROUP BY A.[Year], A.[Month], A.MonthName, A.Subsystem, A.TotalSubsystemCost,
@@ -748,8 +746,6 @@ mu_inner AS (
     INNER JOIN {{ ref('fct_sonnell_subsystem_cost') }} AS B
         ON A.[Year] = B.[Year] AND A.[Month] = B.[Month] AND A.Subsystem = B.GroupId
     WHERE A.Subsystem = 'MU'
-        AND CAST(CONCAT(B.[Year], '-', B.[Month], '-01') AS DATE)
-            < CAST(CONCAT(DATEPART(YEAR, GETDATE()), '-', DATEPART(MONTH, GETDATE()), '-01') AS DATE)
         AND B.CurrentVersion = 1
         AND A.CurrentVersion = 1
 
@@ -781,8 +777,6 @@ mu_rates AS (
             ON t1.Subsystem = t2.GroupId
         WHERE t1.ServiceDate BETWEEN t2.StartDate AND t2.EndDate
             AND t1.Subsystem = 'MU'
-            AND CAST(CONCAT(YEAR(t1.ServiceDate), '-', MONTH(t1.ServiceDate), '-01') AS DATE)
-                < CAST(CONCAT(DATEPART(YEAR, GETDATE()), '-', DATEPART(MONTH, GETDATE()), '-01') AS DATE)
         GROUP BY YEAR(t1.ServiceDate), MONTH(t1.ServiceDate), DATENAME(MONTH, t1.ServiceDate),
                  t1.Subsystem, t1.RouteId, t2.RateHours, t2.RateMiles
     ) P1
@@ -832,8 +826,8 @@ result AS (
         CAST(P2.RevenueMilesAmount + P2.RevenueHoursAmount AS DECIMAL(10,2)),
         CAST(NULL AS DECIMAL(10,2)),
         CAST('Regular' AS NVARCHAR(50)),
-        CAST(NULL AS DECIMAL(10,2)),
-        CAST(NULL AS DECIMAL(10,2)),
+        CAST(P2.RevenueMiles AS DECIMAL(10,2)),
+        CAST(P2.RevenueHours AS DECIMAL(10,2)),
         CAST(P2.EffectiveRateMiles AS DECIMAL(10,2)),
         CAST(P2.EffectiveRateHours AS DECIMAL(10,2)),
         CAST(NULL AS INT),
@@ -869,9 +863,7 @@ result AS (
         CAST(OnTimePerformance AS DECIMAL(8,2)),
         Version
     FROM {{ ref('fct_sonnell_subsystem_offset') }}
-    WHERE CAST(CONCAT([Year], '-', [Month], '-01') AS DATE)
-        < CAST(CONCAT(DATEPART(YEAR, GETDATE()), '-', DATEPART(MONTH, GETDATE()), '-01') AS DATE)
-        AND CurrentVersion = 1
+    WHERE CurrentVersion = 1
 
 )
 
