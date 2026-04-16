@@ -1,0 +1,10 @@
+version: 2
+
+sources:
+  - name: external
+    description: ""
+    schema: raw
+    tables:
+      - name: Sonnell_checkpoin
+      - name: sonnell_subsystem
+      - name: sonnell_trip
