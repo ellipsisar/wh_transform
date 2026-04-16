@@ -46,22 +46,25 @@ macros/
 
 ### AMA/Geotab Pipeline
 
-Dashboard views for AMA fleet monitoring, tagged `dashboard_AMA`. Source schema: `dbo` (source name: `geotab`).
+Dashboard views for AMA fleet monitoring, tagged `dashboard_AMA`. Source schema: `staging` (source name: `geotab`).
 
-**Geotab source tables registered** (`models/sources/geotab.yml`): `geotab_trip`, `geotab_device`, `geotab_device_status_info`, `geotab_log_record`, `geotab_exception_event`, `geotab_zone`, `geotab_zone_type`, `geotab_rule`, `geotab_route`, `geotab_route_plan_item`, `geotab_fault_data`, `geotab_group`, `geotab_status_data`, `ama_itinerario`
+**Geotab source tables registered** (`models/sources/geotab.yml`): `geotab_trip`, `geotab_device`, `geotab_device_status_info`, `geotab_log_record`, `geotab_exception_event`, `geotab_zone`, `geotab_zone_type`, `geotab_rule`, `geotab_route`, `geotab_route_plan_item`, `geotab_fault_data`, `geotab_group`, `geotab_status_data`
+
+**AMA Itinerario** (`models/sources/ama.yml`): source name `ama`, table `AMA_Itinerario`, schema `dbo`. Used via `source('ama', 'AMA_Itinerario')`.
 
 **Model dependencies**:
 ```
-geotab_trip + geotab_device → AMA_Geotab_Viajes → AMA_Geotab_Salida_Vehiculos
+geotab_trip + geotab_device + AMA_Itinerario → AMA_Geotab_Viajes → AMA_Geotab_Salida_Vehiculos
 geotab_log_record + geotab_device → AMA_Geotab_Exceso_Velocidad
 geotab_device + geotab_device_status_info + geotab_log_record + geotab_trip → AMA_Geotab_GPS_Comunicacion
 geotab_exception_event + geotab_rule + geotab_zone + geotab_zone_type + geotab_route_plan_item + geotab_route + geotab_device + geotab_trip
-  → stg_geotab__zone (ephemeral) → AMA_Geotab_Terminales
+  → AMA_Geotab_Terminales (zone parsing inlined as CTEs)
+stg_geotab__zone (ephemeral, models/ama/intermediate/) — standalone ephemeral; not currently ref()d by any model
 ```
 
 **Pending work**: `is_central_departure` usa `'SGDO'` como placeholder — confirmar con AMA el código exacto de la terminal Central. Speed violation threshold is hardcoded at 80 km/h.
 
-**Itinerario AMA** (`dbo.ama_itinerario`): disponible desde 2026-03-26. Join: `ama_itinerario.tren = geotab_device.device_name`. Se filtra `orden_parada = 0` para obtener la terminal y hora de salida programada. Se matchea por día de semana (`servicio`: LUNES-VIERNES / SABADO / DOMINGO). Para viajes con múltiples turnos posibles, se elige el turno cuya hora programada sea más cercana a la salida real.
+**Itinerario AMA** (`dbo.AMA_Itinerario`, source name `ama`): disponible desde 2026-03-26. Join: `ama_itinerario.tren = geotab_device.device_name`. Se filtra `orden_parada = 0` para obtener la terminal y hora de salida programada. Se matchea por día de semana (`servicio`: LUNES-VIERNES / SABADO / DOMINGO). Para viajes con múltiples turnos posibles, se elige el turno cuya hora programada sea más cercana a la salida real. **Esta integración está implementada en `AMA_Geotab_Viajes`** (CTEs `itinerario_salida` + `trip_itinerario_candidatos` + `trip_itinerario`). El campo `_md_snapshot_date` en `AMA_Itinerario` identifica el snapshot más reciente.
 
 **Synapse config per model**:
 | Model | dist | index | Incremental window | Tags |
@@ -75,7 +78,7 @@ geotab_exception_event + geotab_rule + geotab_zone + geotab_zone_type + geotab_r
 
 **GPS_Comunicacion es un snapshot diario**: grain `(device_id, snapshot_date)`. `pre_hook` elimina el snapshot de hoy antes de re-insertar — idempotente. Los campos rolling (viajes_ultimos_30_dias, etc.) siempre se calculan desde el histórico completo de la fuente.
 
-**AMA_Geotab_Terminales**: tracks dwell events at terminals (exception events). Resolution chain: `geotab_exception_event` → `geotab_rule` → zone (via `stg_geotab__zone` ephemeral) → `geotab_route_plan_item` → `geotab_route`. Joins next trip start within 4 hours of terminal exit. `stg_geotab__zone` (ephemeral, `models/ama/intermediate/`) parses `zone_types_json` via `CHARINDEX`/`SUBSTRING` since Geotab stores zone type as JSON (two formats: built-in `["ZoneTypeCustomerId"]` vs custom `[{"id": "b22"}]`). Itinerario fields (`scheduled_departure`, `delay_minutes`, `departure_status`) are placeholder NULLs pending AMA dataset integration.
+**AMA_Geotab_Terminales**: tracks dwell events at terminals (exception events). Resolution chain: `geotab_exception_event` → `geotab_rule` → zone → `geotab_route_plan_item` → `geotab_route`. Joins next trip start within 4 hours of terminal exit. Zone type parsing (`pos` + `val_pos` + `stg_geotab__zone` CTEs) is inlined directly in the model — parses `zone_types_json` via `CHARINDEX`/`SUBSTRING` (two formats: built-in `["ZoneTypeCustomerId"]` vs custom `[{"id": "b22"}]`). **Itinerario fields (`scheduled_departure`, `delay_minutes`, `departure_status`) are `CAST(NULL ...)` placeholders** — itinerario integration is not yet done for this model (unlike `AMA_Geotab_Viajes` where it is fully implemented).
 
 **Incremental pattern** (todos los modelos): `pre_hook DELETE` del día anterior + `append`. Nunca MERGE. Idempotente ante re-ejecuciones del mismo día.
 
@@ -96,6 +99,8 @@ Migration of 3 stored procedure phases to dbt. All fact models use `materialized
 **Sources** (dbo schema): `SonnellDailySummary`, `SonnellRates`, `SonnellCheckpoints`, `SonnellParameters`, `SonnellOffsetApplied`
 
 **Raw sources** (raw schema): `sonnell_trip`, `sonnell_subsystem`, `sonnell_checkpoin` — external tables from data lake (Parquet)
+
+**Post-hook target tables also registered as sources** in `sonnell.yml`: `SonnellSubsystemCost`, `SonnellInvoiceTotals`, `SonnellOffsetApplied` — registered so post-hooks can reference them as `source()` relations when needed.
 
 **Data flow**:
 ```
@@ -180,7 +185,8 @@ dbt compile --profiles-dir . --select <model_name>
 - Staging: `stg_<source>__<entity>` (double underscore)
 - Facts: `fct_<entity>`
 - Dimensions: `dim_<entity>`
-- Sources YAML: define both `sonnell` (dbo) and `sonnell_raw` (raw schema) separately
+- Sources YAML: define both `sonnell` (dbo) and `sonnell_raw` (raw schema) separately; AMA itinerario uses a separate `ama` source (`models/sources/ama.yml`)
+- AMA models have no `schema.yml` — model-level tests and descriptions are absent for the AMA pipeline
 
 ### T-SQL / Synapse Rules
 - Use `CAST()` / `CONVERT()` — never `::` PostgreSQL casting
