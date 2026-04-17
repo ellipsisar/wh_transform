@@ -11,19 +11,19 @@ WITH keep AS (
     GROUP BY svc_date
 )
 SELECT ROW_NUMBER() OVER (ORDER BY _md_processed_at) AS Id
-      ,t.svc_date
-      ,trip_key
-      ,sched_trip
-      ,vehicle_id
-      ,route_id
-      ,pattern_id
-      ,trip_start
-      ,trip_end
-      ,start_place
-      ,end_place
-      ,revenue_seconds
-      ,revenue_meters
-      ,insert_dt
+      ,t.svc_date AS ServiceDate
+      ,trip_key AS TripKey
+      ,sched_trip AS ScheduleTrip
+      ,vehicle_id AS VehicleId
+      ,route_id AS RouteId
+      ,pattern_id AS PatternId
+      ,trip_start AS TripStart
+      ,trip_end AS TripEnd
+      ,start_place AS StartLocation
+      ,end_place AS EndLocation
+      ,revenue_seconds AS RevenueSeconds
+      ,revenue_meters AS RevenueMeters
+      ,insert_dt AS GeneratedAt
     ,CAST(GETDATE() AS datetime) as CreatedAt
     ,CAST(FORMAT(t._md_processed_at, 'yyyyMMdd') AS BIGINT) AS Version
       ,null as TempDataSeconds
