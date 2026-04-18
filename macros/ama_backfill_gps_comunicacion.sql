@@ -58,32 +58,6 @@
 
         -- Insertar snapshot del día
         {% set insert_sql %}
-            INSERT INTO {{ target_rel }} (
-                snapshot_date,
-                device_id,
-                device_name,
-                device_comment,
-                ultima_fecha_de_comunicacion,
-                is_device_communicating,
-                dias_sin_comunicacion,
-                ultima_posicion_gps,
-                dias_sin_gps,
-                esta_conduciendo,
-                velocidad_actual_kmh,
-                ultima_latitud,
-                ultima_longitud,
-                ultimo_viaje,
-                dias_sin_viaje,
-                viajes_ultimos_7_dias,
-                viajes_ultimos_30_dias,
-                km_ultimos_30_dias,
-                total_pings_gps_historico,
-                dispositivo_activo_desde,
-                dispositivo_activo_hasta,
-                es_dispositivo_vigente,
-                categoria_comunicacion,
-                categoria_gps
-            )
             WITH
             cte_ultimo_status AS (
                 SELECT
@@ -134,6 +108,32 @@
                 FROM {{ trip_rel }}
                 WHERE trip_start <= CAST('{{ d_end }}' AS DATETIME)
                 GROUP BY device_id
+            )
+            INSERT INTO {{ target_rel }} (
+                snapshot_date,
+                device_id,
+                device_name,
+                device_comment,
+                ultima_fecha_de_comunicacion,
+                is_device_communicating,
+                dias_sin_comunicacion,
+                ultima_posicion_gps,
+                dias_sin_gps,
+                esta_conduciendo,
+                velocidad_actual_kmh,
+                ultima_latitud,
+                ultima_longitud,
+                ultimo_viaje,
+                dias_sin_viaje,
+                viajes_ultimos_7_dias,
+                viajes_ultimos_30_dias,
+                km_ultimos_30_dias,
+                total_pings_gps_historico,
+                dispositivo_activo_desde,
+                dispositivo_activo_hasta,
+                es_dispositivo_vigente,
+                categoria_comunicacion,
+                categoria_gps
             )
             SELECT
                 CAST('{{ d }}' AS DATE)                                                         AS snapshot_date,
