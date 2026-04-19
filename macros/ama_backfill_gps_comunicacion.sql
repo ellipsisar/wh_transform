@@ -59,28 +59,22 @@
         -- Insertar snapshot del día
         {% set insert_sql %}
             WITH
-            cte_ultimo_status AS (
-                SELECT
-                    device_id,
-                    status_datetime,
-                    is_device_communicating,
-                    is_driving,
-                    speed,
-                    latitude,
-                    longitude
+            cte_device AS (
+                SELECT device_id, device_name, comment, active_from, active_to
                 FROM (
                     SELECT
-                        device_id,
-                        status_datetime,
-                        is_device_communicating,
-                        is_driving,
-                        speed,
-                        latitude,
-                        longitude,
-                        ROW_NUMBER() OVER (
-                            PARTITION BY device_id
-                            ORDER BY status_datetime DESC
-                        ) AS rn
+                        device_id, device_name, comment, active_from, active_to,
+                        ROW_NUMBER() OVER (PARTITION BY device_id ORDER BY active_from DESC) AS rn
+                    FROM {{ device_rel }}
+                ) x
+                WHERE rn = 1
+            ),
+            cte_ultimo_status AS (
+                SELECT device_id, status_datetime, is_device_communicating, is_driving, speed, latitude, longitude
+                FROM (
+                    SELECT
+                        device_id, status_datetime, is_device_communicating, is_driving, speed, latitude, longitude,
+                        ROW_NUMBER() OVER (PARTITION BY device_id ORDER BY status_datetime DESC) AS rn
                     FROM {{ status_rel }}
                     WHERE status_datetime <= CAST('{{ d_end }}' AS DATETIME)
                 ) x
@@ -110,30 +104,13 @@
                 GROUP BY device_id
             )
             INSERT INTO {{ target_rel }} (
-                snapshot_date,
-                device_id,
-                device_name,
-                device_comment,
-                ultima_fecha_de_comunicacion,
-                is_device_communicating,
-                dias_sin_comunicacion,
-                ultima_posicion_gps,
-                dias_sin_gps,
-                esta_conduciendo,
-                velocidad_actual_kmh,
-                ultima_latitud,
-                ultima_longitud,
-                ultimo_viaje,
-                dias_sin_viaje,
-                viajes_ultimos_7_dias,
-                viajes_ultimos_30_dias,
-                km_ultimos_30_dias,
-                total_pings_gps_historico,
-                dispositivo_activo_desde,
-                dispositivo_activo_hasta,
-                es_dispositivo_vigente,
-                categoria_comunicacion,
-                categoria_gps
+                snapshot_date, device_id, device_name, device_comment,
+                ultima_fecha_de_comunicacion, is_device_communicating, dias_sin_comunicacion,
+                ultima_posicion_gps, dias_sin_gps, esta_conduciendo, velocidad_actual_kmh,
+                ultima_latitud, ultima_longitud, ultimo_viaje, dias_sin_viaje,
+                viajes_ultimos_7_dias, viajes_ultimos_30_dias, km_ultimos_30_dias,
+                total_pings_gps_historico, dispositivo_activo_desde, dispositivo_activo_hasta,
+                es_dispositivo_vigente, categoria_comunicacion, categoria_gps
             )
             SELECT
                 CAST('{{ d }}' AS DATE)                                                         AS snapshot_date,
@@ -183,12 +160,12 @@
                                                                                                 THEN 'GPS inactivo (8-30 dias)'
                     ELSE 'GPS inactivo (mas de 30 dias)'
                 END                                                                             AS categoria_gps
-            FROM {{ device_rel }} d
+            FROM cte_device d
                 LEFT JOIN cte_ultimo_status si ON d.device_id = si.device_id
                 LEFT JOIN cte_ultimo_gps     g ON d.device_id = g.device_id
                 LEFT JOIN cte_viajes         v ON d.device_id = v.device_id
             WHERE
-                (d.active_to IS NULL OR d.active_to > CAST('{{ d_end }}' AS DATETIME))
+                d.active_to IS NULL OR d.active_to > CAST('{{ d_end }}' AS DATETIME)
         {% endset %}
         {% do run_query(insert_sql) %}
 
