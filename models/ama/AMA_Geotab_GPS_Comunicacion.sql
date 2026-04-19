@@ -22,64 +22,12 @@
 -- Todas las tablas fuente son incrementales y tienen múltiples filas por
 -- device_id. Se deduplica cada una antes del JOIN:
 --   - cte_device        : última fila de geotab_device por device_id
---   - cte_ultimo_status : última fila de geotab_device_status_info por device_id
 --   - cte_ultimo_gps    : MAX de geotab_log_record por device_id
 --   - cte_viajes        : agregados de geotab_trip por device_id
 --
 -- Para backfill pasar: --vars '{gps_backfill_date: "2026-04-01"}'
 
 WITH
-cte_device AS (
-    SELECT
-        device_id,
-        device_name,
-        comment,
-        active_from,
-        active_to
-    FROM (
-        SELECT
-            device_id,
-            device_name,
-            comment,
-            active_from,
-            active_to,
-            ROW_NUMBER() OVER (
-                PARTITION BY device_id
-                ORDER BY active_from DESC
-            ) AS rn
-        FROM {{ source('geotab', 'geotab_device') }}
-    ) x
-    WHERE rn = 1
-),
-
-cte_ultimo_status AS (
-    SELECT
-        device_id,
-        status_datetime,
-        is_device_communicating,
-        is_driving,
-        speed,
-        latitude,
-        longitude
-    FROM (
-        SELECT
-            device_id,
-            status_datetime,
-            is_device_communicating,
-            is_driving,
-            speed,
-            latitude,
-            longitude,
-            ROW_NUMBER() OVER (
-                PARTITION BY device_id
-                ORDER BY status_datetime DESC
-            ) AS rn
-        FROM {{ source('geotab', 'geotab_device_status_info') }}
-        WHERE status_datetime <= {{ datetime_expr }}
-    ) x
-    WHERE rn = 1
-),
-
 cte_ultimo_gps AS (
     SELECT
         device_id,
@@ -157,8 +105,8 @@ SELECT
             THEN 'GPS inactivo (8-30 dias)'
         ELSE 'GPS inactivo (mas de 30 dias)'
     END                                                                          AS categoria_gps
-FROM cte_device d
-    LEFT JOIN cte_ultimo_status si ON d.device_id = si.device_id
+FROM {{ ref( 'stg_geotab_device') }} d
+    LEFT JOIN {{ source('geotab', 'geotab_device_status_info') }} si ON d.device_id = si.device_id
     LEFT JOIN cte_ultimo_gps     g ON d.device_id = g.device_id
     LEFT JOIN cte_viajes         v ON d.device_id = v.device_id
 WHERE
