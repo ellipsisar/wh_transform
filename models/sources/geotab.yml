@@ -18,3 +18,4 @@ sources:
       - name: geotab_zone
       - name: geotab_zone_type
       - name: geotab_rule
+      - name: geotab_planned_vs_actual
