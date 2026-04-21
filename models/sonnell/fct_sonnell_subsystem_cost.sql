@@ -102,18 +102,18 @@ WITH source_data AS (
     SELECT
         s.Id,
         s.ServiceDate,
-        s.GroupId,
+        s.Subsystem                    AS GroupId,
         s.RouteId,
-        s.NumTrips,
-        s.RevenueHours,
-        s.RevenueMiles,
+        s.TripCount                    AS NumTrips,
+        s.RevenueSeconds / 3600.0      AS RevenueHours,
+        s.RevenueMeters / 1609.34      AS RevenueMiles,
         s.Version,
         r.RateMiles,
         r.RateHours,
         MAX(s.Version) OVER (PARTITION BY s.ServiceDate) AS max_version
     FROM {{ ref('stg_sonnell_daily_summary') }} AS s
     LEFT JOIN {{ ref('stg_sonnell_rates') }} AS r
-        ON s.GroupId = r.GroupId
+        ON s.Subsystem = r.GroupId
         AND s.ServiceDate BETWEEN r.StartDate AND r.EndDate
 
 )
@@ -149,28 +149,28 @@ FROM source_data
 {# ── pre_hook already DELETEd the month. IsActive=1 on rates matches SP2 exactly.         ── #}
 
 SELECT
-    CAST(NULL AS INT)                                                   AS Id,
-    CAST(s.Id AS INT)                                                   AS DailySummaryId,
+    CAST(NULL AS INT)                                                             AS Id,
+    CAST(s.Id AS INT)                                                             AS DailySummaryId,
     s.ServiceDate,
-    YEAR(s.ServiceDate)                                                 AS [Year],
-    MONTH(s.ServiceDate)                                                AS [Month],
-    CAST(DATENAME(MONTH, s.ServiceDate) AS NVARCHAR(50))                AS MonthName,
-    CAST(s.GroupId AS NVARCHAR(50))                                     AS GroupId,
-    CAST(s.RouteId AS NVARCHAR(10))                                     AS RouteId,
-    s.NumTrips,
-    CAST(s.RevenueHours AS DECIMAL(18, 2))                              AS RevenueHours,
-    CAST(s.RevenueMiles AS DECIMAL(18, 2))                              AS RevenueMiles,
-    CAST(ROUND(s.RevenueHours * r.RateHours, 2) AS DECIMAL(18, 2))     AS RevenueHoursAmount,
-    CAST(ROUND(s.RevenueMiles * r.RateMiles, 2) AS DECIMAL(18, 2))     AS RevenueMilesAmount,
-    CAST(r.RateMiles AS DECIMAL(5, 2))                                  AS EffectiveRateMiles,
-    CAST(r.RateHours AS DECIMAL(5, 2))                                  AS EffectiveRateHours,
-    CAST(NULL AS NVARCHAR(50))                                          AS InvoiceId,
-    CAST(SYSDATETIME() AS DATETIME)                                     AS CreatedAt,
+    YEAR(s.ServiceDate)                                                           AS [Year],
+    MONTH(s.ServiceDate)                                                          AS [Month],
+    CAST(DATENAME(MONTH, s.ServiceDate) AS NVARCHAR(50))                          AS MonthName,
+    CAST(s.Subsystem AS NVARCHAR(50))                                             AS GroupId,
+    CAST(s.RouteId AS NVARCHAR(10))                                               AS RouteId,
+    s.TripCount                                                                   AS NumTrips,
+    CAST(s.RevenueSeconds / 3600.0 AS DECIMAL(18, 2))                            AS RevenueHours,
+    CAST(s.RevenueMeters / 1609.34 AS DECIMAL(18, 2))                            AS RevenueMiles,
+    CAST(ROUND((s.RevenueSeconds / 3600.0) * r.RateHours, 2) AS DECIMAL(18, 2)) AS RevenueHoursAmount,
+    CAST(ROUND((s.RevenueMeters / 1609.34) * r.RateMiles, 2) AS DECIMAL(18, 2)) AS RevenueMilesAmount,
+    CAST(r.RateMiles AS DECIMAL(5, 2))                                            AS EffectiveRateMiles,
+    CAST(r.RateHours AS DECIMAL(5, 2))                                            AS EffectiveRateHours,
+    CAST(NULL AS NVARCHAR(50))                                                    AS InvoiceId,
+    CAST(SYSDATETIME() AS DATETIME)                                               AS CreatedAt,
     s.Version,
-    CAST(1 AS BIT)                                                      AS CurrentVersion
+    CAST(1 AS BIT)                                                                AS CurrentVersion
 FROM {{ ref('stg_sonnell_daily_summary') }} AS s
 LEFT JOIN {{ ref('stg_sonnell_rates') }} AS r
-    ON s.GroupId = r.GroupId
+    ON s.Subsystem = r.GroupId
     AND s.ServiceDate BETWEEN r.StartDate AND r.EndDate
     AND r.IsActive = 1
 WHERE MONTH(s.ServiceDate) = {{ var('sonnell_reprocess_month') }}
@@ -188,28 +188,28 @@ WHERE MONTH(s.ServiceDate) = {{ var('sonnell_reprocess_month') }}
 {# ── No IsActive filter on rates — matches SP1.                                           ── #}
 
 SELECT
-    CAST(s.Id AS INT)                                                   AS Id,
-    CAST(s.Id AS INT)                                                   AS DailySummaryId,
+    CAST(s.Id AS INT)                                                             AS Id,
+    CAST(s.Id AS INT)                                                             AS DailySummaryId,
     s.ServiceDate,
-    YEAR(s.ServiceDate)                                                 AS [Year],
-    MONTH(s.ServiceDate)                                                AS [Month],
-    CAST(DATENAME(MONTH, s.ServiceDate) AS NVARCHAR(50))                AS MonthName,
-    CAST(s.GroupId AS NVARCHAR(50))                                     AS GroupId,
-    CAST(s.RouteId AS NVARCHAR(10))                                     AS RouteId,
-    s.NumTrips,
-    CAST(s.RevenueHours AS DECIMAL(18, 2))                              AS RevenueHours,
-    CAST(s.RevenueMiles AS DECIMAL(18, 2))                              AS RevenueMiles,
-    CAST(ROUND(s.RevenueHours * r.RateHours, 2) AS DECIMAL(18, 2))     AS RevenueHoursAmount,
-    CAST(ROUND(s.RevenueMiles * r.RateMiles, 2) AS DECIMAL(18, 2))     AS RevenueMilesAmount,
-    CAST(r.RateMiles AS DECIMAL(5, 2))                                  AS EffectiveRateMiles,
-    CAST(r.RateHours AS DECIMAL(5, 2))                                  AS EffectiveRateHours,
-    CAST(NULL AS NVARCHAR(50))                                          AS InvoiceId,
-    CAST(SYSDATETIME() AS DATETIME)                                     AS CreatedAt,
+    YEAR(s.ServiceDate)                                                           AS [Year],
+    MONTH(s.ServiceDate)                                                          AS [Month],
+    CAST(DATENAME(MONTH, s.ServiceDate) AS NVARCHAR(50))                          AS MonthName,
+    CAST(s.Subsystem AS NVARCHAR(50))                                             AS GroupId,
+    CAST(s.RouteId AS NVARCHAR(10))                                               AS RouteId,
+    s.TripCount                                                                   AS NumTrips,
+    CAST(s.RevenueSeconds / 3600.0 AS DECIMAL(18, 2))                            AS RevenueHours,
+    CAST(s.RevenueMeters / 1609.34 AS DECIMAL(18, 2))                            AS RevenueMiles,
+    CAST(ROUND((s.RevenueSeconds / 3600.0) * r.RateHours, 2) AS DECIMAL(18, 2)) AS RevenueHoursAmount,
+    CAST(ROUND((s.RevenueMeters / 1609.34) * r.RateMiles, 2) AS DECIMAL(18, 2)) AS RevenueMilesAmount,
+    CAST(r.RateMiles AS DECIMAL(5, 2))                                            AS EffectiveRateMiles,
+    CAST(r.RateHours AS DECIMAL(5, 2))                                            AS EffectiveRateHours,
+    CAST(NULL AS NVARCHAR(50))                                                    AS InvoiceId,
+    CAST(SYSDATETIME() AS DATETIME)                                               AS CreatedAt,
     s.Version,
-    CAST(1 AS BIT)                                                      AS CurrentVersion
+    CAST(1 AS BIT)                                                                AS CurrentVersion
 FROM {{ ref('stg_sonnell_daily_summary') }} AS s
 LEFT JOIN {{ ref('stg_sonnell_rates') }} AS r
-    ON s.GroupId = r.GroupId
+    ON s.Subsystem = r.GroupId
     AND s.ServiceDate BETWEEN r.StartDate AND r.EndDate
 WHERE NOT EXISTS (
         SELECT 1 FROM {{ this }} AS t
