@@ -32,7 +32,8 @@ models/
 │   ├── AMA_Geotab_GPS_Comunicacion.sql # Device communication & GPS status
 │   ├── AMA_Geotab_Terminales.sql       # Terminal dwell events (exception events)
 │   └── intermediate/
-│       └── stg_geotab__zone.sql        # Ephemeral: parses zone_types_json
+│       ├── stg_geotab__zone.sql        # Ephemeral: parses zone_types_json
+│       └── stg_geotab_device.sql       # Ephemeral: normalizes geotab_device
 ├── sources/               # Source YAML definitions (sonnell.yml, gtfs.yml, korbato.yml, tdev.yml, geotab.yml)
 ├── dimOperators.sql       # Legacy model (root level, no schema file)
 ├── dimRoutes.sql          # Legacy model (root level, no schema file)
@@ -48,7 +49,7 @@ macros/
 
 Dashboard views for AMA fleet monitoring, tagged `dashboard_AMA`. Source schema: `staging` (source name: `geotab`).
 
-**Geotab source tables registered** (`models/sources/geotab.yml`): `geotab_trip`, `geotab_device`, `geotab_device_status_info`, `geotab_log_record`, `geotab_exception_event`, `geotab_zone`, `geotab_zone_type`, `geotab_rule`, `geotab_route`, `geotab_route_plan_item`, `geotab_fault_data`, `geotab_group`, `geotab_status_data`
+**Geotab source tables registered** (`models/sources/geotab.yml`): `geotab_trip`, `geotab_device`, `geotab_device_status_info`, `geotab_log_record`, `geotab_exception_event`, `geotab_zone`, `geotab_zone_type`, `geotab_rule`, `geotab_route`, `geotab_route_plan_item`, `geotab_fault_data`, `geotab_group`, `geotab_status_data`, `geotab_planned_vs_actual`
 
 **AMA Itinerario** (`models/sources/ama.yml`): source name `ama`, table `AMA_Itinerario`, schema `dbo`. Used via `source('ama', 'AMA_Itinerario')`.
 
@@ -57,9 +58,10 @@ Dashboard views for AMA fleet monitoring, tagged `dashboard_AMA`. Source schema:
 geotab_trip + geotab_device + AMA_Itinerario → AMA_Geotab_Viajes → AMA_Geotab_Salida_Vehiculos
 geotab_log_record + geotab_device → AMA_Geotab_Exceso_Velocidad
 geotab_device + geotab_device_status_info + geotab_log_record + geotab_trip → AMA_Geotab_GPS_Comunicacion
-geotab_exception_event + geotab_rule + geotab_zone + geotab_zone_type + geotab_route_plan_item + geotab_route + geotab_device + geotab_trip
+geotab_exception_event + geotab_rule + geotab_zone + geotab_zone_type + geotab_route_plan_item + geotab_route + geotab_device + geotab_trip + geotab_planned_vs_actual
   → AMA_Geotab_Terminales (zone parsing inlined as CTEs)
 stg_geotab__zone (ephemeral, models/ama/intermediate/) — standalone ephemeral; not currently ref()d by any model
+stg_geotab_device (ephemeral, models/ama/intermediate/) — standalone ephemeral; not currently ref()d by any model
 ```
 
 **Pending work**: `is_central_departure` usa `'SGDO'` como placeholder — confirmar con AMA el código exacto de la terminal Central. Speed violation threshold is hardcoded at 80 km/h.
@@ -75,6 +77,7 @@ stg_geotab__zone (ephemeral, models/ama/intermediate/) — standalone ephemeral;
 | `AMA_Geotab_GPS_Comunicacion` | `HASH(device_id)` | CCI | daily snapshot by `snapshot_date` | `dashboard_AMA` |
 | `AMA_Geotab_Terminales` | `HASH(zone_id)` | CCI | last 1 day on `event_date` | `dashboard_AMA`, `terminales_AMA` |
 | `stg_geotab__zone` (ephemeral) | — | — | — | `dashboard_AMA`, `terminales_AMA` |
+| `stg_geotab_device` (ephemeral) | — | — | — | `dashboard_AMA` |
 
 **GPS_Comunicacion es un snapshot diario**: grain `(device_id, snapshot_date)`. `pre_hook` elimina el snapshot de hoy antes de re-insertar — idempotente. Los campos rolling (viajes_ultimos_30_dias, etc.) siempre se calculan desde el histórico completo de la fuente.
 
@@ -98,7 +101,7 @@ Migration of 3 stored procedure phases to dbt. All fact models use `materialized
 
 **Sources** (dbo schema): `SonnellDailySummary`, `SonnellRates`, `SonnellCheckpoints`, `SonnellParameters`, `SonnellOffsetApplied`
 
-**Raw sources** (raw schema): `sonnell_trip`, `sonnell_subsystem`, `sonnell_checkpoin` — external tables from data lake (Parquet)
+**Raw sources** (raw schema, source name `external` in `models/sources/external.yml`): `sonnell_trip`, `sonnell_subsystem`, `Sonnell_checkpoin` — external tables from data lake (Parquet)
 
 **Post-hook target tables also registered as sources** in `sonnell.yml`: `SonnellSubsystemCost`, `SonnellInvoiceTotals`, `SonnellOffsetApplied` — registered so post-hooks can reference them as `source()` relations when needed.
 
@@ -108,6 +111,7 @@ SonnellDailySummary → stg_sonnell_daily_summary ──┐
 SonnellRates        → stg_sonnell_rates ───────────┼──► fct_sonnell_subsystem_cost ──┐
 SonnellCheckpoints  → stg_sonnell_checkpoints ─────┤                                 ├──► fct_sonnell_invoice_totals
 SonnellParameters   → stg_sonnell_parameters ───────┴──► fct_sonnell_subsystem_offset ┘
+sonnell_trip (raw)  → stg_sonnell_trip              # staging view; not yet consumed by a fact model
 ```
 
 **Target tables** (dbt aliases):
@@ -185,7 +189,7 @@ dbt compile --profiles-dir . --select <model_name>
 - Staging: `stg_<source>__<entity>` (double underscore)
 - Facts: `fct_<entity>`
 - Dimensions: `dim_<entity>`
-- Sources YAML: define both `sonnell` (dbo) and `sonnell_raw` (raw schema) separately; AMA itinerario uses a separate `ama` source (`models/sources/ama.yml`)
+- Sources YAML: define both `sonnell` (dbo) and `external` (raw schema, in `external.yml`) separately; AMA itinerario uses a separate `ama` source (`models/sources/ama.yml`); other registered sources (`korbato`, `gtfs`, `tdev`/`tdev_dev`) are in `models/sources/` but not yet wired to any active model
 - AMA models have no `schema.yml` — model-level tests and descriptions are absent for the AMA pipeline
 
 ### T-SQL / Synapse Rules
