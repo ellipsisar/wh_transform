@@ -24,7 +24,9 @@
     diferencia absoluta entre hora programada y hora real:
       IDA   → compara hora itinerario vs. actual_departure_local
       VUELTA → compara hora itinerario vs. actual_arrival_local
-  - variance_minutes y departure_status se recalculan con esta lógica.
+  - departure_status/delay_minutes (IDA) y arrival_status/arrival_delay_minutes (VUELTA)
+    se calculan independientemente: cte_itinerario_best particiona por (visita, direccion)
+    y en el SELECT final se une dos veces (ib_dep para IDA, ib_arr para VUELTA).
   - Zona horaria: Puerto Rico = UTC-4 (sin horario de verano); se aplica
     DATEADD(HOUR, -4, ...) para convertir UTC a hora local.
 */
@@ -142,9 +144,11 @@ cte_itinerario_candidatos AS (
 ),
 
 cte_itinerario_best AS (
-    -- De todos los candidatos (turnos IDA + VUELTA del mismo día), conservar
-    -- el que tenga menor diferencia absoluta con el tiempo real.
-    -- Esto determina automáticamente si el evento fue IDA o VUELTA.
+    -- Conservar el mejor candidato POR DIRECCIÓN (IDA y VUELTA por separado).
+    -- Esto permite evaluar independientemente:
+    --   ib_dep (IDA)    → departure_status / delay_minutes
+    --   ib_arr (VUELTA) → arrival_status   / arrival_delay_minutes
+    -- trip_direction se resuelve en el SELECT final comparando ABS(diff_minutos) de ambas.
     SELECT
         device_id,
         route_id,
@@ -158,7 +162,7 @@ cte_itinerario_best AS (
         SELECT
             *,
             ROW_NUMBER() OVER (
-                PARTITION BY device_id, route_id, stop_sequence, actual_arrival_utc
+                PARTITION BY device_id, route_id, stop_sequence, actual_arrival_utc, direccion
                 ORDER BY ABS(diff_minutos) ASC
             ) AS rn
         FROM cte_itinerario_candidatos
@@ -216,7 +220,14 @@ SELECT
     v.stop_name,
 
     -- Dirección del servicio según itinerario (IDA / VUELTA / NULL si sin match)
-    ib.direccion                                            AS trip_direction,
+    -- Se elige la dirección cuyo candidato tenga menor varianza absoluta.
+    CASE
+        WHEN ib_dep.diff_minutos IS NULL AND ib_arr.diff_minutos IS NULL THEN NULL
+        WHEN ib_dep.diff_minutos IS NULL                                 THEN 'VUELTA'
+        WHEN ib_arr.diff_minutos IS NULL                                 THEN 'IDA'
+        WHEN ABS(ib_dep.diff_minutos) <= ABS(ib_arr.diff_minutos)        THEN 'IDA'
+        ELSE                                                                  'VUELTA'
+    END                                                     AS trip_direction,
 
     -- Tiempos del evento en terminal
     v.actual_arrival_utc                                    AS terminal_entry_datetime,
@@ -266,27 +277,45 @@ SELECT
     nt.next_trip_start,
     DATEDIFF(MINUTE, v.actual_departure_utc, nt.next_trip_start) AS minutos_hasta_viaje,
 
-    -- Hora programada según itinerario (en hora local Puerto Rico)
-    ib.scheduled_datetime_local                             AS scheduled_departure,
+    -- Hora programada de salida según itinerario IDA (en hora local Puerto Rico)
+    ib_dep.scheduled_datetime_local                         AS scheduled_departure,
 
-    -- Varianza respecto al itinerario:
-    --   IDA   = diferencia entre hora programada y actual_departure_local
-    --   VUELTA = diferencia entre hora programada y actual_arrival_local
-    --   NULL   = sin match en itinerario (sin horario para ese tren/parada/día)
-    CAST(ib.diff_minutos AS DECIMAL(10, 2))                 AS delay_minutes,
+    -- Varianza de salida (IDA):
+    --   positivo = tarde, negativo = adelantado, NULL = sin match en itinerario
+    CAST(ib_dep.diff_minutos AS DECIMAL(10, 2))             AS delay_minutes,
 
-    -- Estado de cumplimiento del itinerario:
+    -- Estado de cumplimiento de salida (IDA):
     --   ON_TIME    : varianza dentro de ±2 min
-    --   EARLY      : llegó/salió más de 2 min antes del horario
-    --   LATE       : llegó/salió más de 2 min después del horario
-    --   NO_SCHEDULE: no existe entrada en el itinerario para este vehículo/parada/día
+    --   EARLY      : salió más de 2 min antes del horario
+    --   LATE       : salió más de 2 min después del horario
+    --   NO_SCHEDULE: no existe entrada IDA en el itinerario para este vehículo/parada/día
     CASE
-        WHEN ib.scheduled_hora IS NULL                    THEN 'NO_SCHEDULE'
-        WHEN ib.diff_minutos BETWEEN -2 AND 2             THEN 'ON_TIME'
-        WHEN ib.diff_minutos < -2                         THEN 'EARLY'
-        WHEN ib.diff_minutos > 2                          THEN 'LATE'
+        WHEN ib_dep.scheduled_hora IS NULL                THEN 'NO_SCHEDULE'
+        WHEN ib_dep.diff_minutos BETWEEN -2 AND 2         THEN 'ON_TIME'
+        WHEN ib_dep.diff_minutos < -2                     THEN 'EARLY'
+        WHEN ib_dep.diff_minutos > 2                      THEN 'LATE'
         ELSE                                                   'ON_TIME'
     END                                                     AS departure_status,
+
+    -- Hora programada de llegada según itinerario VUELTA (en hora local Puerto Rico)
+    ib_arr.scheduled_datetime_local                         AS scheduled_arrival,
+
+    -- Varianza de llegada (VUELTA):
+    --   positivo = tarde, negativo = adelantado, NULL = sin match en itinerario
+    CAST(ib_arr.diff_minutos AS DECIMAL(10, 2))             AS arrival_delay_minutes,
+
+    -- Estado de cumplimiento de llegada (VUELTA):
+    --   ON_TIME    : varianza dentro de ±2 min
+    --   EARLY      : llegó más de 2 min antes del horario
+    --   LATE       : llegó más de 2 min después del horario
+    --   NO_SCHEDULE: no existe entrada VUELTA en el itinerario para este vehículo/parada/día
+    CASE
+        WHEN ib_arr.scheduled_hora IS NULL                THEN 'NO_SCHEDULE'
+        WHEN ib_arr.diff_minutos BETWEEN -2 AND 2         THEN 'ON_TIME'
+        WHEN ib_arr.diff_minutos < -2                     THEN 'EARLY'
+        WHEN ib_arr.diff_minutos > 2                      THEN 'LATE'
+        ELSE                                                   'ON_TIME'
+    END                                                     AS arrival_status,
 
     -- Nota del proveedor sobre el evento
     v.note                                                  AS event_note
@@ -294,11 +323,18 @@ SELECT
 FROM cte_visits v
 LEFT JOIN cte_device d
     ON d.device_id = v.device_id
-LEFT JOIN cte_itinerario_best ib
-    ON  ib.device_id          = v.device_id
-    AND ib.route_id           = v.route_id
-    AND ib.stop_sequence      = v.stop_sequence
-    AND ib.actual_arrival_utc = v.actual_arrival_utc
+LEFT JOIN cte_itinerario_best ib_dep
+    ON  ib_dep.device_id          = v.device_id
+    AND ib_dep.route_id           = v.route_id
+    AND ib_dep.stop_sequence      = v.stop_sequence
+    AND ib_dep.actual_arrival_utc = v.actual_arrival_utc
+    AND ib_dep.direccion          = 'IDA'
+LEFT JOIN cte_itinerario_best ib_arr
+    ON  ib_arr.device_id          = v.device_id
+    AND ib_arr.route_id           = v.route_id
+    AND ib_arr.stop_sequence      = v.stop_sequence
+    AND ib_arr.actual_arrival_utc = v.actual_arrival_utc
+    AND ib_arr.direccion          = 'VUELTA'
 LEFT JOIN cte_next_trip nt
     ON  nt.device_id          = v.device_id
     AND nt.route_id           = v.route_id
