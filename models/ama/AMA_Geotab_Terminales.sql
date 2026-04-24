@@ -13,10 +13,20 @@
 /*
   Fuente principal: staging.geotab_planned_vs_actual
   - Cada fila = una parada planificada en una ruta para un vehículo.
-  - status = 'ON_TIME' → el vehículo visitó físicamente la zona (tiene actual_arrival/departure).
+  - actual_arrival_utc IS NOT NULL → el vehículo visitó físicamente la zona.
   - La tabla se actualiza en múltiples snapshots diarios; se deduplica por
     (device_id, route_id, stop_sequence, actual_arrival_utc) usando _md_filename DESC.
-  - Solo se incluyen filas ON_TIME (visitas reales al terminal).
+  - Solo se incluyen filas con visita real (actual_arrival_utc no nulo).
+
+  Integración con AMA_Itinerario:
+  - Se cruza tren = device_name + orden_parada = stop_sequence + tipo de día.
+  - Para cada visita se evalúan candidatos IDA y VUELTA; se elige el de menor
+    diferencia absoluta entre hora programada y hora real:
+      IDA   → compara hora itinerario vs. actual_departure_local
+      VUELTA → compara hora itinerario vs. actual_arrival_local
+  - variance_minutes y departure_status se recalculan con esta lógica.
+  - Zona horaria: Puerto Rico = UTC-4 (sin horario de verano); se aplica
+    DATEADD(HOUR, -4, ...) para convertir UTC a hora local.
 */
 
 WITH cte_deduped AS (
@@ -33,14 +43,13 @@ WITH cte_deduped AS (
         CAST(actual_arrival_utc   AS DATETIME)    AS actual_arrival_utc,
         CAST(actual_departure_utc AS DATETIME)    AS actual_departure_utc,
         status,
-        CAST(ISNULL(variance_minutes, 0) AS DECIMAL(10, 2)) AS variance_minutes,
         note,
         ROW_NUMBER() OVER (
             PARTITION BY device_id, route_id, stop_sequence, actual_arrival_utc
             ORDER BY _md_filename DESC
         ) AS rn
     FROM {{ source('geotab', 'geotab_planned_vs_actual') }}
-    WHERE status = 'ON_TIME'
+    WHERE actual_arrival_utc IS NOT NULL
     {% if is_incremental() %}
       AND CAST(actual_arrival_utc AS DATE) >= DATEADD(DAY, -1, CAST(GETDATE() AS DATE))
     {% endif %}
@@ -55,6 +64,106 @@ cte_visits AS (
 cte_device AS (
     SELECT device_id, device_type
     FROM {{ source('geotab', 'geotab_device') }}
+),
+
+cte_itinerario AS (
+    -- Snapshot más reciente de AMA_Itinerario: todas las paradas y direcciones.
+    -- tren cast a VARCHAR para que coincida con device_name.
+    SELECT
+        CAST(tren AS VARCHAR(50)) AS tren,
+        orden_parada,
+        hora,
+        direccion,
+        servicio
+    FROM {{ source('ama', 'AMA_Itinerario') }}
+    WHERE _md_snapshot_date = (
+        SELECT MAX(_md_snapshot_date)
+        FROM {{ source('ama', 'AMA_Itinerario') }}
+    )
+),
+
+cte_itinerario_candidatos AS (
+    -- Para cada visita real se generan candidatos de itinerario (IDA y VUELTA)
+    -- que coincidan en tren + parada + tipo de día.
+    -- La hora programada se construye combinando la fecha LOCAL del evento con
+    -- el campo hora del itinerario (formato H:MM, 24 h, sin ceros a la izquierda).
+    -- diff_minutos: varianza en minutos entre programado y real:
+    --   IDA   → real = actual_departure_local  (el vehículo debe salir de la parada)
+    --   VUELTA → real = actual_arrival_local    (el vehículo debe llegar a la parada)
+    SELECT
+        v.device_id,
+        v.route_id,
+        v.stop_sequence,
+        v.actual_arrival_utc,
+        i.direccion,
+        i.hora                                          AS scheduled_hora,
+
+        -- Hora programada en tiempo local (fecha local del evento + hora del itinerario)
+        DATEADD(MINUTE,
+            CAST(SUBSTRING(i.hora, CHARINDEX(':', i.hora) + 1, 2) AS INT),
+            DATEADD(HOUR,
+                CAST(LEFT(i.hora, CHARINDEX(':', i.hora) - 1) AS INT),
+                CAST(CAST(DATEADD(HOUR, -4, v.actual_arrival_utc) AS DATE) AS DATETIME)
+            )
+        )                                               AS scheduled_datetime_local,
+
+        -- Varianza: positivo = tarde, negativo = adelantado
+        DATEDIFF(MINUTE,
+            DATEADD(MINUTE,
+                CAST(SUBSTRING(i.hora, CHARINDEX(':', i.hora) + 1, 2) AS INT),
+                DATEADD(HOUR,
+                    CAST(LEFT(i.hora, CHARINDEX(':', i.hora) - 1) AS INT),
+                    CAST(CAST(DATEADD(HOUR, -4, v.actual_arrival_utc) AS DATE) AS DATETIME)
+                )
+            ),
+            CASE i.direccion
+                WHEN 'IDA'    THEN DATEADD(HOUR, -4, v.actual_departure_utc)
+                WHEN 'VUELTA' THEN DATEADD(HOUR, -4, v.actual_arrival_utc)
+            END
+        )                                               AS diff_minutos
+
+    FROM cte_visits v
+    JOIN cte_itinerario i
+        ON  i.tren        = v.device_name
+        AND i.orden_parada = v.stop_sequence
+        AND i.servicio    = CASE
+            WHEN DATEPART(dw, DATEADD(HOUR, -4, v.actual_arrival_utc)) = 1
+                THEN 'DOMINGO - DO'
+            WHEN DATEPART(dw, DATEADD(HOUR, -4, v.actual_arrival_utc)) = 7
+                THEN 'SABADO - SA'
+            ELSE 'LUNES-VIERNES - LV'
+          END
+    -- Excluir candidatos donde el tiempo de referencia sea nulo
+    WHERE (
+        (i.direccion = 'IDA'    AND v.actual_departure_utc IS NOT NULL)
+        OR
+        (i.direccion = 'VUELTA' AND v.actual_arrival_utc IS NOT NULL)
+    )
+),
+
+cte_itinerario_best AS (
+    -- De todos los candidatos (turnos IDA + VUELTA del mismo día), conservar
+    -- el que tenga menor diferencia absoluta con el tiempo real.
+    -- Esto determina automáticamente si el evento fue IDA o VUELTA.
+    SELECT
+        device_id,
+        route_id,
+        stop_sequence,
+        actual_arrival_utc,
+        direccion,
+        scheduled_hora,
+        scheduled_datetime_local,
+        diff_minutos
+    FROM (
+        SELECT
+            *,
+            ROW_NUMBER() OVER (
+                PARTITION BY device_id, route_id, stop_sequence, actual_arrival_utc
+                ORDER BY ABS(diff_minutos) ASC
+            ) AS rn
+        FROM cte_itinerario_candidatos
+    ) ranked
+    WHERE rn = 1
 ),
 
 -- Siguiente viaje del vehículo dentro de las 4 horas posteriores a la salida del terminal
@@ -77,9 +186,9 @@ cte_next_trip AS (
 
 SELECT
     -- Evento
-    CAST(v.actual_arrival_utc AS DATE)                      AS event_date,
-    DATEPART(HOUR,    v.actual_arrival_utc)                 AS entry_hour,
-    DATEPART(WEEKDAY, v.actual_arrival_utc)                 AS entry_weekday,
+    CAST(DATEADD(HOUR, -4, v.actual_arrival_utc) AS DATE)  AS event_date,
+    DATEPART(HOUR,    DATEADD(HOUR, -4, v.actual_arrival_utc)) AS entry_hour,
+    DATEPART(WEEKDAY, DATEADD(HOUR, -4, v.actual_arrival_utc)) AS entry_weekday,
 
     -- Zona / Terminal (resueltos directamente desde planned_vs_actual)
     v.arrival_zone_id                                       AS zone_id,
@@ -105,6 +214,9 @@ SELECT
     -- Parada en la ruta
     v.stop_sequence,
     v.stop_name,
+
+    -- Dirección del servicio según itinerario (IDA / VUELTA / NULL si sin match)
+    ib.direccion                                            AS trip_direction,
 
     -- Tiempos del evento en terminal
     v.actual_arrival_utc                                    AS terminal_entry_datetime,
@@ -139,14 +251,14 @@ SELECT
         END
     AS BIT)                                                 AS es_cuello_de_botella,
 
-    -- Franja horaria
+    -- Franja horaria basada en hora local (UTC-4)
     CASE
-        WHEN DATEPART(HOUR, v.actual_arrival_utc) BETWEEN 5  AND 8  THEN 'MANANA_TEMPRANA'
-        WHEN DATEPART(HOUR, v.actual_arrival_utc) BETWEEN 9  AND 11 THEN 'MANANA'
-        WHEN DATEPART(HOUR, v.actual_arrival_utc) BETWEEN 12 AND 14 THEN 'MEDIODIA'
-        WHEN DATEPART(HOUR, v.actual_arrival_utc) BETWEEN 15 AND 18 THEN 'TARDE'
-        WHEN DATEPART(HOUR, v.actual_arrival_utc) BETWEEN 19 AND 22 THEN 'NOCHE'
-        ELSE                                                              'MADRUGADA'
+        WHEN DATEPART(HOUR, DATEADD(HOUR, -4, v.actual_arrival_utc)) BETWEEN 5  AND 8  THEN 'MANANA_TEMPRANA'
+        WHEN DATEPART(HOUR, DATEADD(HOUR, -4, v.actual_arrival_utc)) BETWEEN 9  AND 11 THEN 'MANANA'
+        WHEN DATEPART(HOUR, DATEADD(HOUR, -4, v.actual_arrival_utc)) BETWEEN 12 AND 14 THEN 'MEDIODIA'
+        WHEN DATEPART(HOUR, DATEADD(HOUR, -4, v.actual_arrival_utc)) BETWEEN 15 AND 18 THEN 'TARDE'
+        WHEN DATEPART(HOUR, DATEADD(HOUR, -4, v.actual_arrival_utc)) BETWEEN 19 AND 22 THEN 'NOCHE'
+        ELSE                                                                                 'MADRUGADA'
     END                                                     AS franja_horaria,
 
     -- Viaje posterior al evento en terminal
@@ -154,11 +266,27 @@ SELECT
     nt.next_trip_start,
     DATEDIFF(MINUTE, v.actual_departure_utc, nt.next_trip_start) AS minutos_hasta_viaje,
 
-    -- Estado e itinerario (ahora poblados desde planned_vs_actual)
-    v.status                                                AS departure_status,
-    v.variance_minutes                                      AS delay_minutes,
-    -- Los tiempos planificados en esta fuente son valores centinela (1986/2050); se mantiene NULL
-    CAST(NULL AS DATETIME)                                  AS scheduled_departure,
+    -- Hora programada según itinerario (en hora local Puerto Rico)
+    ib.scheduled_datetime_local                             AS scheduled_departure,
+
+    -- Varianza respecto al itinerario:
+    --   IDA   = diferencia entre hora programada y actual_departure_local
+    --   VUELTA = diferencia entre hora programada y actual_arrival_local
+    --   NULL   = sin match en itinerario (sin horario para ese tren/parada/día)
+    CAST(ib.diff_minutos AS DECIMAL(10, 2))                 AS delay_minutes,
+
+    -- Estado de cumplimiento del itinerario:
+    --   ON_TIME    : varianza dentro de ±2 min
+    --   EARLY      : llegó/salió más de 2 min antes del horario
+    --   LATE       : llegó/salió más de 2 min después del horario
+    --   NO_SCHEDULE: no existe entrada en el itinerario para este vehículo/parada/día
+    CASE
+        WHEN ib.scheduled_hora IS NULL                    THEN 'NO_SCHEDULE'
+        WHEN ib.diff_minutos BETWEEN -2 AND 2             THEN 'ON_TIME'
+        WHEN ib.diff_minutos < -2                         THEN 'EARLY'
+        WHEN ib.diff_minutos > 2                          THEN 'LATE'
+        ELSE                                                   'ON_TIME'
+    END                                                     AS departure_status,
 
     -- Nota del proveedor sobre el evento
     v.note                                                  AS event_note
@@ -166,6 +294,11 @@ SELECT
 FROM cte_visits v
 LEFT JOIN cte_device d
     ON d.device_id = v.device_id
+LEFT JOIN cte_itinerario_best ib
+    ON  ib.device_id          = v.device_id
+    AND ib.route_id           = v.route_id
+    AND ib.stop_sequence      = v.stop_sequence
+    AND ib.actual_arrival_utc = v.actual_arrival_utc
 LEFT JOIN cte_next_trip nt
     ON  nt.device_id          = v.device_id
     AND nt.route_id           = v.route_id
