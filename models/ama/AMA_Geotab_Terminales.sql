@@ -110,6 +110,8 @@ final AS (
 SELECT
     route_name,
     CAST(actual_arrival_local AS DATE)                    AS event_date,
+    actual_arrival_local,
+    actual_departure_local,
     DATEPART(HOUR,    actual_arrival_local)               AS arrival_hour,
     DATEPART(WEEKDAY, actual_arrival_local)               AS arrival_weekday,
     arrival_zone_name                                     AS terminal_name,
@@ -129,11 +131,11 @@ SELECT
     shift,
 
     CASE
-        WHEN DATEPART(HOUR, actual_arrival_local) BETWEEN 5  AND 8  THEN 'EARLY_MORNING'
-        WHEN DATEPART(HOUR, actual_arrival_local) BETWEEN 9  AND 11 THEN 'MORNING'
-        WHEN DATEPART(HOUR, actual_arrival_local) BETWEEN 12 AND 14 THEN 'MIDDAY'
-        WHEN DATEPART(HOUR, actual_arrival_local) BETWEEN 15 AND 18 THEN 'AFTERNOON'
-        WHEN DATEPART(HOUR, actual_arrival_local) BETWEEN 19 AND 22 THEN 'EVENING'
+        WHEN DATEPART(HOUR, actual_departure_local) BETWEEN 5  AND 8  THEN 'EARLY_MORNING'
+        WHEN DATEPART(HOUR, actual_departure_local) BETWEEN 9  AND 11 THEN 'MORNING'
+        WHEN DATEPART(HOUR, actual_departure_local) BETWEEN 12 AND 14 THEN 'MIDDAY'
+        WHEN DATEPART(HOUR, actual_departure_local) BETWEEN 15 AND 18 THEN 'AFTERNOON'
+        WHEN DATEPART(HOUR, actual_departure_local) BETWEEN 19 AND 22 THEN 'EVENING'
         ELSE                                                              'OVERNIGHT'
     END                                                   AS time_slot,
 
