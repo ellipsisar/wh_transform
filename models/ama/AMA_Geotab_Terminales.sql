@@ -43,7 +43,13 @@ pln AS (
     SELECT
         CAST(tren AS VARCHAR(50)) AS train_id,
         orden_parada              AS stop_order,
-        CAST(hora AS TIME)        AS planned_time,
+        CASE
+            WHEN turno BETWEEN 201 AND 208
+                THEN CAST(hora AS TIME)
+            WHEN turno BETWEEN 209 AND 216
+                THEN CAST(DATEADD(HOUR, 12, CAST(hora AS TIME)) AS TIME)
+            ELSE CAST(hora AS TIME)
+        END                       AS planned_time,
         direccion                 AS direction,
         servicio                  AS service_day_type,
         turno                     AS shift,
@@ -131,12 +137,12 @@ SELECT
     shift,
 
     CASE
-        WHEN DATEPART(HOUR, actual_departure_local) BETWEEN 5  AND 8  THEN 'EARLY_MORNING'
-        WHEN DATEPART(HOUR, actual_departure_local) BETWEEN 9  AND 11 THEN 'MORNING'
+        WHEN DATEPART(HOUR, actual_departure_local) BETWEEN  0 AND  4 THEN 'OVERNIGHT'
+        WHEN DATEPART(HOUR, actual_departure_local) BETWEEN  5 AND  8 THEN 'EARLY_MORNING'
+        WHEN DATEPART(HOUR, actual_departure_local) BETWEEN  9 AND 11 THEN 'MORNING'
         WHEN DATEPART(HOUR, actual_departure_local) BETWEEN 12 AND 14 THEN 'MIDDAY'
         WHEN DATEPART(HOUR, actual_departure_local) BETWEEN 15 AND 18 THEN 'AFTERNOON'
-        WHEN DATEPART(HOUR, actual_departure_local) BETWEEN 19 AND 22 THEN 'EVENING'
-        ELSE                                                              'OVERNIGHT'
+        WHEN DATEPART(HOUR, actual_departure_local) BETWEEN 19 AND 23 THEN 'EVENING'
     END                                                   AS time_slot,
 
     arrival_time,
