@@ -8,3 +8,9 @@ sources:
       - name: Sonnell_checkpoin
       - name: sonnell_subsystem
       - name: sonnell_trip
+      - name: fleet
+      - name: pattern
+      - name: pattern_stop
+      - name: trip
+      - name: vehicle_day
+      - name: visit
