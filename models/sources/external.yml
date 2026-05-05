@@ -14,3 +14,4 @@ sources:
       - name: trip
       - name: vehicle_day
       - name: visit
+      - name: trip_sch_match
