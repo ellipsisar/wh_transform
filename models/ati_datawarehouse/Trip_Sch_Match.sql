@@ -8,8 +8,6 @@
     pre_hook="{% if is_incremental() %}DELETE FROM {{ this }} WHERE svc_date >= CAST(DATEADD(day, -1, GETDATE()) AS DATE){% endif %}"
 )}}
 
-;
-
 SELECT  svc_date,
         trip_key,
         sch_trip_id,

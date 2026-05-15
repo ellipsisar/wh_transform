@@ -4,7 +4,7 @@
     tags=['ati_datawarehouse']
 )}}
 
-SELECT  CAST(svc_date AS date)                    AS svc_date,
+SELECT  TRY_CAST(svc_date AS date)                 AS svc_date,
         CAST(visit_key AS nvarchar(4000))          AS visit_key,
         CAST(vehicle_day_key AS nvarchar(4000))    AS vehicle_day_key,
         TRY_CAST(seq_in_day AS int)                AS seq_in_day,
@@ -25,7 +25,7 @@ SELECT  CAST(svc_date AS date)                    AS svc_date,
         TRY_CAST(apc_ons AS real)                  AS apc_ons,
         TRY_CAST(apc_offs AS real)                 AS apc_offs,
         TRY_CAST(apc_load_out AS real)             AS apc_load_out,
-        CAST(insert_dt AS datetime2(7))            AS insert_dt,
+        TRY_CAST(insert_dt AS datetime2(7))        AS insert_dt,
         CAST(_md_filename AS nvarchar(4000))       AS _md_filename,
         CAST(_md_processed_at AS datetime2(7))     AS _md_processed_at
 FROM {{ source('external', 'visit') }}
