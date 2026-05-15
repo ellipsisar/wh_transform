@@ -3,7 +3,7 @@
         materialized='incremental',
         incremental_strategy='append',
         tags=['sonnell'],
-        alias='dbt_SonnellInvoiceTotals',
+        alias='SonnellInvoiceTotals',
         dist='ROUND_ROBIN',
         index='CLUSTERED COLUMNSTORE INDEX',
         pre_hook="
