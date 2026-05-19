@@ -1,0 +1,73 @@
+version: 2
+
+sources:
+  - name: hms
+    description: "HMS ferry maritime service data - raw external tables from data lake"
+    schema: raw
+    tables:
+      - name: hms_trips
+        description: >
+          Raw HMS monthly trip data loaded from CSV files via Synapse notebook.
+          Each row represents a scheduled ferry trip with actual departure/arrival times,
+          passenger counts, vehicle counts, and OTP status.
+          Recreated daily by df_HMS_MonthlyDataTrip dataflow.
+        columns:
+          - name: Id
+            description: "Auto-generated row identifier"
+          - name: Month
+            description: "Month name (e.g., 'January', 'February')"
+          - name: Date
+            description: "Service date of the trip"
+          - name: Day
+            description: "Day type: 'Weekday' or weekend day name"
+          - name: Vessel
+            description: "Ferry vessel name"
+          - name: Route
+            description: "Route identifier (e.g., 'Fajardo-Vieques')"
+          - name: Scheduled_Departure_Time
+            description: "Scheduled departure datetime"
+          - name: Actual_Departure_Time
+            description: "Actual departure datetime"
+          - name: Origin
+            description: "Origin terminal name"
+          - name: Destination
+            description: "Destination terminal name"
+          - name: Arrival_Time
+            description: "Actual arrival datetime"
+          - name: Travel_Time
+            description: "Travel time in HH:MM format"
+          - name: PAX
+            description: "Number of passengers"
+          - name: Vehicles
+            description: "Number of vehicles"
+          - name: Variance_Schd_vs_Act
+            description: "Variance between scheduled and actual departure"
+          - name: Val
+            description: "Validation flag"
+          - name: OTP
+            description: "On-time performance status: 'ON-TIME' or 'DELAYED'"
+          - name: Trip_Status
+            description: "Trip status: 'COMPLETED' or 'MISSED TRIP'"
+          - name: Miles
+            description: "Trip distance in miles"
+          - name: Comments
+            description: "Additional comments"
+          - name: Trip_Type
+            description: "Type of trip"
+          - name: Travel_Time_Minutes
+            description: "Travel time in minutes (calculated)"
+          - name: DayOfWeek
+            description: "Day of week as integer (0=Sunday, 1=Monday, ...)"
+          - name: _md_filename
+            description: "Source filename (metadata)"
+          - name: _md_processed_at
+            description: "Processing timestamp (metadata)"
+
+  - name: hms_output
+    description: "HMS output tables in dbo schema - registered for post-hook references"
+    schema: dbo
+    tables:
+      - name: HMS_MonthlyDataTrip
+        description: "Transformed HMS trip data with calculated fields"
+      - name: HmsNtdData
+        description: "Aggregated NTD (National Transit Database) metrics"

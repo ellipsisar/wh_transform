@@ -44,3 +44,7 @@ models:
     sonnell:
       staging:
         +materialized: view
+    hms:
+      staging:
+        +materialized: ephemeral
+      # Fact models (fct_hms_*) set materialized='incremental' inline via config()
