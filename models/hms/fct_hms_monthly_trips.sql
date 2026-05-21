@@ -2,7 +2,7 @@
     config(
         materialized='table',
         tags=['hms'],
-        alias='dbt_HMS_MonthlyDataTrip',
+        alias='HMS_MonthlyDataTrip',
         dist='HASH(Id)',
         index='CLUSTERED COLUMNSTORE INDEX'
     )
