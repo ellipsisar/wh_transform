@@ -48,3 +48,7 @@ models:
       staging:
         +materialized: ephemeral
       # Fact models (fct_hms_*) set materialized='incremental' inline via config()
+
+snapshots:
+  wh_transform:
+    +target_schema: snapshots
