@@ -3,7 +3,7 @@
         materialized='incremental',
         incremental_strategy='append',
         tags=['hms'],
-        alias='dbt_HmsNtdData',
+        alias='HmsNtdData',
         dist='HASH(Date)',
         index='CLUSTERED COLUMNSTORE INDEX',
         pre_hook="
