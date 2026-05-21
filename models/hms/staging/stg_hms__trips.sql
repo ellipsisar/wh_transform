@@ -32,8 +32,8 @@ FROM (
                 CAST([month]              AS VARCHAR(400))    AS [month],
                 TRY_CAST([date]           AS DATE)            AS [date],
                 CAST([day]                AS VARCHAR(400))    AS [day],
-                CAST(vessel               AS VARCHAR(400))    AS vessel,
-                CAST(route                AS VARCHAR(400))    AS route,
+                LTRIM(RTRIM(CAST(vessel   AS VARCHAR(400))))  AS vessel,
+                LTRIM(RTRIM(CAST(route    AS VARCHAR(400))))  AS route,
                 -- datetime fields: date part + time part concatenated (matches SP)
                 CAST(CONCAT(CONVERT(CHAR(10), TRY_CAST([date] AS DATE), 120), ' ', TRY_CAST(scheduled_departure_time AS TIME)) AS DATETIME2) AS scheduled_departure_time,
                 CAST(CONCAT(CONVERT(CHAR(10), TRY_CAST([date] AS DATE), 120), ' ', TRY_CAST(actual_departure_time   AS TIME)) AS DATETIME2) AS actual_departure_time,
