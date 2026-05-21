@@ -1,0 +1,98 @@
+version: 2
+
+models:
+  - name: fct_operator_scd
+    description: >
+      SCD Type 2 para la dimensión de operadores. Registra el historial de cambios
+      de nombre de operador a lo largo del tiempo. Implementado como modelo incremental
+      (UPDATE pre_hook + INSERT append) para evitar MERGE, incompatible con Synapse Dedicated SQL Pool.
+      Grain: una fila por versión de cada operador (operator_id, valid_from).
+    columns:
+      - name: scd_id
+        description: "PK surrogate — GUID único por versión SCD"
+        tests:
+          - unique
+          - not_null
+
+      - name: operator_id
+        description: "Natural key — identificador del operador"
+        tests:
+          - not_null
+
+      - name: operator_name
+        description: "Nombre del operador/flota. Cambios en este campo generan nueva versión SCD."
+        tests:
+          - not_null
+
+      - name: valid_from
+        description: "Timestamp desde el que esta versión es válida"
+        tests:
+          - not_null
+
+      - name: valid_to
+        description: "Timestamp en que esta versión expiró. NULL = versión actualmente vigente."
+
+      - name: is_current
+        description: "Flag BIT: 1 = versión actual, 0 = histórica"
+        tests:
+          - not_null
+          - accepted_values:
+              values: [0, 1]
+
+      - name: dbt_updated_at
+        description: "Timestamp de inserción de esta versión (momento del dbt run)"
+        tests:
+          - not_null
+
+  - name: fct_route_scd
+    description: >
+      SCD Type 2 para la dimensión de rutas. Registra el historial de cambios de nombre
+      de ruta (route_long_name en GTFS) a lo largo del tiempo. Implementado como modelo
+      incremental (UPDATE pre_hook + INSERT append) para evitar MERGE.
+      Grain: una fila por versión de cada combinación (operator_id, route_id, valid_from).
+    columns:
+      - name: scd_id
+        description: "PK surrogate — GUID único por versión SCD"
+        tests:
+          - unique
+          - not_null
+
+      - name: route_operator_key
+        description: "Clave compuesta: CAST(operator_id AS VARCHAR) + '_' + CAST(route_id AS VARCHAR)"
+        tests:
+          - not_null
+
+      - name: operator_id
+        description: "Identificador del operador (parte de la clave natural)"
+        tests:
+          - not_null
+
+      - name: route_id
+        description: "Identificador de la ruta en GTFS y Korbato"
+        tests:
+          - not_null
+
+      - name: route_name
+        description: "Nombre largo de la ruta (route_long_name en GTFS). Cambios en este campo generan nueva versión SCD."
+        tests:
+          - not_null
+
+      - name: valid_from
+        description: "Timestamp desde el que esta versión es válida"
+        tests:
+          - not_null
+
+      - name: valid_to
+        description: "Timestamp en que esta versión expiró. NULL = versión actualmente vigente."
+
+      - name: is_current
+        description: "Flag BIT: 1 = versión actual, 0 = histórica"
+        tests:
+          - not_null
+          - accepted_values:
+              values: [0, 1]
+
+      - name: dbt_updated_at
+        description: "Timestamp de inserción de esta versión (momento del dbt run)"
+        tests:
+          - not_null
