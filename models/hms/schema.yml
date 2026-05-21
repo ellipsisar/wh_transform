@@ -1,0 +1,148 @@
+version: 2
+
+models:
+  - name: stg_hms__trips
+    description: >
+      Ephemeral staging model. Replicates the three CTEs from HMS_Transform SP:
+      cast_table_temp (type casts + datetime construction from date+time parts),
+      clean_table_temp (filter nulls on date/vessel/route/scheduled_departure_time/pax),
+      ranked_table_temp (dedup by most recent _md_processed_at per trip).
+      Outputs one deduplicated, clean row per trip (rank=1).
+    columns:
+      - name: date
+        description: "Service date (TRY_CAST from source)"
+        tests:
+          - not_null
+      - name: vessel
+        description: "Ferry vessel name"
+        tests:
+          - not_null
+      - name: route
+        description: "Route identifier"
+        tests:
+          - not_null
+      - name: scheduled_departure_time
+        description: "Scheduled departure as DATETIME2 (date + time concatenated)"
+        tests:
+          - not_null
+      - name: pax
+        description: "Passenger count (CAST via FLOAT to handle decimal source values)"
+        tests:
+          - not_null
+      - name: travel_time_minutes
+        description: "DATEDIFF(minute, actual_departure_time, arrival_time) on source columns"
+      - name: day_of_week
+        description: "Day of week: Monday=0, Tuesday=1, ..., Sunday=6 — formula: ((WEEKDAY+5)%7)"
+      - name: rank
+        description: "Dedup rank: always 1 in output (most recent _md_processed_at per date+vessel+route+scheduled_departure_time)"
+
+  - name: fct_hms_monthly_trips
+    description: >
+      Full-load model equivalent to HMS_Transform SP. Drops and recreates on every run
+      (materialized=table). Grain: one row per deduplicated ferry trip.
+      Id is a synthetic sequential integer ordered by _md_processed_at.
+      Target table: dbo.HMS_MonthlyDataTrip.
+    columns:
+      - name: Id
+        description: "Synthetic row identifier — ROW_NUMBER() OVER (ORDER BY _md_processed_at)"
+        tests:
+          - not_null
+          - unique
+      - name: Date
+        description: "Service date"
+        tests:
+          - not_null
+      - name: Vessel
+        description: "Ferry vessel name"
+        tests:
+          - not_null
+      - name: Route
+        description: "Route identifier"
+        tests:
+          - not_null
+      - name: Scheduled_Departure_Time
+        description: "Scheduled departure as DATETIME2"
+      - name: Actual_Departure_Time
+        description: "Actual departure as DATETIME2"
+      - name: Arrival_Time
+        description: "Arrival as DATETIME2"
+      - name: Travel_Time
+        description: "Travel time as VARCHAR (HH:MM from source)"
+      - name: Travel_Time_Minutes
+        description: "Travel duration in minutes"
+      - name: PAX
+        description: "Passenger count"
+      - name: Vehicles
+        description: "Vehicle count"
+      - name: OTP
+        description: "On-time performance status"
+        tests:
+          - accepted_values:
+              values: ['ON-TIME', 'DELAYED']
+              config:
+                where: "OTP IS NOT NULL"
+      - name: Trip_Status
+        description: "Trip completion status"
+        tests:
+          - accepted_values:
+              values: ['COMPLETED', 'MISSED TRIP']
+              config:
+                where: "Trip_Status IS NOT NULL AND LTRIM(RTRIM(Trip_Status)) != ''"
+      - name: DayOfWeek
+        description: "Day of week integer: Monday=0 ... Sunday=6"
+      - name: rank
+        description: "Dedup rank from staging (always 1)"
+
+  - name: fct_hms_ntd_data
+    description: >
+      Incremental model equivalent to sp_UpsertMonthlyTripSummary. Reads from
+      fct_hms_monthly_trips and aggregates by (Vessel, Route, Date, DayOfWeek, Origin,
+      Trip_Status), then deduplicates to one row per (Vessel, Route, Date, IsOutbound,
+      IsMissed). Daily run processes current month only; use hms_ntd_reprocess vars
+      to reprocess a specific month. Target table: dbo.HmsNtdData.
+    columns:
+      - name: Vessel
+        description: "Ferry vessel name"
+        tests:
+          - not_null
+      - name: Route
+        description: "Route identifier"
+        tests:
+          - not_null
+      - name: Date
+        description: "Service date"
+        tests:
+          - not_null
+      - name: IsOutbound
+        description: "1 if origin is NOT vieques/culebra (departure from mainland), 0 otherwise"
+        tests:
+          - not_null
+          - accepted_values:
+              values: [0, 1]
+              quote: false
+      - name: IsMissed
+        description: "1 if Trip_Status is NULL, empty, or 'MISSED TRIP'"
+        tests:
+          - not_null
+          - accepted_values:
+              values: [0, 1]
+              quote: false
+      - name: DayOfWeek
+        description: "Day of week integer: Monday=0 ... Sunday=6"
+        tests:
+          - not_null
+          - accepted_values:
+              values: [0, 1, 2, 3, 4, 5, 6]
+              quote: false
+      - name: TotalTravelMiles
+        description: "Sum of miles for the group (DECIMAL 12,2)"
+      - name: TotalTravelMinutes
+        description: "Sum of travel_time_minutes for the group"
+      - name: TotalPassengers
+        description: "Sum of PAX for the group"
+      - name: TotalVehicles
+        description: "Sum of vehicles for the group"
+
+    tests:
+      - unique:
+          column_name: "CONCAT(Vessel, '|', Route, '|', CAST([Date] AS VARCHAR), '|', CAST(IsOutbound AS VARCHAR), '|', CAST(IsMissed AS VARCHAR))"
