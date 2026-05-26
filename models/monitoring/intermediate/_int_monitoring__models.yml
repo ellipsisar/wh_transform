@@ -1,0 +1,34 @@
+version: 2
+
+models:
+  - name: int_daily_aggregates
+    description: >
+      Agregacion diaria por (event_date, entity_name, domain).
+      Cuenta ejecuciones y suma records por status.
+    config:
+      materialized: ephemeral
+      tags: ['monitoring', 'intermediate']
+
+  - name: int_baseline_7d
+    description: >
+      Calcula baseline de 7 dias para deteccion de anomalias de volumen.
+      Incluye promedio, stddev, variacion porcentual y z-score.
+    config:
+      materialized: ephemeral
+      tags: ['monitoring', 'intermediate']
+
+  - name: int_latest_errors
+    description: >
+      Obtiene el ultimo error por (event_date, entity_name, domain)
+      usando ROW_NUMBER sobre process_datetime DESC.
+    config:
+      materialized: ephemeral
+      tags: ['monitoring', 'intermediate']
+
+  - name: int_health_metrics
+    description: >
+      Calcula health_score (0-100), health_status, anomaly flags y SLA compliance.
+      Modelo intermedio final antes de la materializacion en fct_pipeline_health_daily.
+    config:
+      materialized: ephemeral
+      tags: ['monitoring', 'intermediate']

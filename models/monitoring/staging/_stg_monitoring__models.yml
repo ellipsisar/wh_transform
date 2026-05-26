@@ -1,0 +1,18 @@
+version: 2
+
+models:
+  - name: stg_control_status
+    description: >
+      Limpieza y normalizacion de control_raw_file_status.
+      Extrae entity_name del filename y determina el domain.
+    config:
+      materialized: ephemeral
+      tags: ['monitoring', 'staging']
+
+  - name: stg_entity_config
+    description: >
+      Configuracion de frecuencia esperada por dominio.
+      Modelo ephemeral con valores inline.
+    config:
+      materialized: ephemeral
+      tags: ['monitoring', 'staging', 'config']
