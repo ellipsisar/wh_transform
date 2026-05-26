@@ -23,14 +23,6 @@
   como CTEs inline en este query por el compilador de dbt.
 */
 
-WITH health_metrics AS (
-    SELECT * FROM {{ ref('int_health_metrics') }}
-
-    {% if is_incremental() %}
-    WHERE event_date >= DATEADD(DAY, -7, CAST(GETDATE() AS DATE))
-    {% endif %}
-)
-
 SELECT
     -- Dimensiones de granularidad
     event_date,
@@ -75,4 +67,8 @@ SELECT
     CAST(GETDATE()               AS DATETIME2)     AS dbt_updated_at,
     CAST('{{ invocation_id }}'   AS VARCHAR(100))  AS dbt_run_id
 
-FROM health_metrics
+FROM {{ ref('int_health_metrics') }}
+
+{% if is_incremental() %}
+WHERE event_date >= DATEADD(DAY, -7, CAST(GETDATE() AS DATE))
+{% endif %}

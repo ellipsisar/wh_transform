@@ -28,7 +28,9 @@ models:
   - name: int_health_metrics
     description: >
       Calcula health_score (0-100), health_status, anomaly flags y SLA compliance.
-      Modelo intermedio final antes de la materializacion en fct_pipeline_health_daily.
+      Materializado como view (no ephemeral) para que fct_pipeline_health_daily pueda
+      referenciarlo sin CTE expansion, evitando el error de sintaxis INSERT INTO ... WITH
+      en Synapse T-SQL.
     config:
-      materialized: ephemeral
+      materialized: view
       tags: ['monitoring', 'intermediate']
