@@ -1,12 +1,11 @@
 {{
   config(
     materialized         = 'incremental',
-    unique_key           = ['event_date', 'entity_name', 'domain'],
-    incremental_strategy = 'delete+insert',
-    on_schema_change     = 'sync_all_columns',
+    incremental_strategy = 'append',
     dist                 = 'ROUND_ROBIN',
     pre_hook             = [
-      "IF NOT EXISTS (SELECT * FROM sys.schemas WHERE name = 'monitoring') EXEC('CREATE SCHEMA [monitoring]')"
+      "IF NOT EXISTS (SELECT * FROM sys.schemas WHERE name = 'monitoring') EXEC('CREATE SCHEMA [monitoring]')",
+      "{% if is_incremental() %}DELETE FROM {{ this }} WHERE event_date >= DATEADD(DAY, -7, CAST(GETDATE() AS DATE)){% endif %}"
     ]
   )
 }}
