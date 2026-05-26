@@ -1,11 +1,12 @@
 {{
   config(
-    materialized = 'synapse_safe_incremental',
-    unique_key   = ['event_date', 'entity_name', 'domain'],
-    dist         = 'ROUND_ROBIN',
-    index        = 'CLUSTERED COLUMNSTORE INDEX',
-    pre_hook     = [
-      "IF NOT EXISTS (SELECT * FROM sys.schemas WHERE name = 'monitoring') EXEC('CREATE SCHEMA [monitoring]')"
+    materialized         = 'incremental',
+    incremental_strategy = 'append',
+    dist                 = 'ROUND_ROBIN',
+    index                = 'CLUSTERED COLUMNSTORE INDEX',
+    pre_hook             = [
+      "IF NOT EXISTS (SELECT * FROM sys.schemas WHERE name = 'monitoring') EXEC('CREATE SCHEMA [monitoring]')",
+      "{% if is_incremental() %}DELETE FROM {{ this }} WHERE event_date >= DATEADD(DAY, -7, CAST(GETDATE() AS DATE)){% endif %}"
     ]
   )
 }}
@@ -74,6 +75,6 @@ SELECT
 
 FROM {{ ref('int_health_metrics') }}
 
-{% if is_incremental_safe() %}
+{% if is_incremental() %}
 WHERE event_date >= DATEADD(DAY, -7, CAST(GETDATE() AS DATE))
 {% endif %}
