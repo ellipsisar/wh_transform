@@ -6,13 +6,14 @@ models:
       Limpieza y normalizacion de control_raw_file_status.
       Extrae entity_name del filename y determina el domain.
     config:
-      materialized: ephemeral
+      materialized: view
       tags: ['monitoring', 'staging']
 
   - name: stg_entity_config
     description: >
       Configuracion de frecuencia esperada por dominio.
-      Modelo ephemeral con valores inline.
+      Modelo view con valores inline (no ephemeral — Synapse no soporta CTEs
+      dentro de INSERT INTO ... WITH, que es lo que genera dbt con ephemeral).
     config:
-      materialized: ephemeral
+      materialized: view
       tags: ['monitoring', 'staging', 'config']

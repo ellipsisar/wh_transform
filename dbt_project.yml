@@ -50,8 +50,8 @@ models:
       # Fact models (fct_hms_*) set materialized='incremental' inline via config()
     monitoring:
       staging:
-        +materialized: ephemeral
+        +materialized: view
       intermediate:
-        +materialized: ephemeral
+        +materialized: view
       marts:
         +materialized: incremental

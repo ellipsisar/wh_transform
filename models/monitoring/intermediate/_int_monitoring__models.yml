@@ -6,7 +6,7 @@ models:
       Agregacion diaria por (event_date, entity_name, domain).
       Cuenta ejecuciones y suma records por status.
     config:
-      materialized: ephemeral
+      materialized: view
       tags: ['monitoring', 'intermediate']
 
   - name: int_baseline_7d
@@ -14,7 +14,7 @@ models:
       Calcula baseline de 7 dias para deteccion de anomalias de volumen.
       Incluye promedio, stddev, variacion porcentual y z-score.
     config:
-      materialized: ephemeral
+      materialized: view
       tags: ['monitoring', 'intermediate']
 
   - name: int_latest_errors
@@ -22,7 +22,7 @@ models:
       Obtiene el ultimo error por (event_date, entity_name, domain)
       usando ROW_NUMBER sobre process_datetime DESC.
     config:
-      materialized: ephemeral
+      materialized: view
       tags: ['monitoring', 'intermediate']
 
   - name: int_health_metrics
