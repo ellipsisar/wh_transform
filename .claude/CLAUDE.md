@@ -96,14 +96,30 @@ wh_transform/
 │   │   ├── AMA_Geotab_Exceso_Velocidad.sql
 │   │   ├── AMA_Geotab_GPS_Comunicacion.sql
 │   │   └── AMA_Geotab_Terminales.sql
+│   ├── hms/                            ← Pipeline ferry HMS (tag: hms)
+│   │   ├── staging/stg_hms__trips.sql  ← Ephemeral: cast + clean + dedup
+│   │   ├── fct_hms_monthly_trips.sql   ← table, alias HMS_MonthlyDataTrip
+│   │   ├── fct_hms_ntd_data.sql        ← incremental, alias HmsNtdData
+│   │   └── schema.yml
+│   ├── monitoring/                     ← Monitoreo de salud de pipelines (tag: monitoring)
+│   │   ├── staging/                    ← Ephemeral: stg_control_status, stg_entity_config
+│   │   ├── intermediate/               ← Ephemeral: int_daily_aggregates, int_baseline_7d, int_latest_errors, int_health_metrics
+│   │   └── marts/fct_pipeline_health_daily.sql  ← incremental delete+insert, ROUND_ROBIN
+│   ├── ati_datawarehouse/              ← Migración Korbato ATI DWH (tag: ati_datawarehouse)
+│   │   ├── deduplicated/               ← Ephemeral dedup staging por entidad
+│   │   ├── intermediate/               ← Intermediate por entidad
+│   │   └── fleet.sql / trip.sql / vehicle_day.sql / visit.sql / pattern.sql / pattern_stop.sql / Trip_Sch_Match.sql
 │   ├── sources/                        ← Definiciones YAML de fuentes
 │   │   ├── sonnell.yml
 │   │   ├── geotab.yml
 │   │   ├── ama.yml
+│   │   ├── hms.yml
 │   │   ├── gtfs.yml
 │   │   ├── korbato.yml
 │   │   ├── tdev.yml
 │   │   └── external.yml
+│   ├── fct_operator_scd.sql            ← SCD Type 2 para operadores (schema.yml en raíz)
+│   ├── fct_route_scd.sql               ← SCD Type 2 para rutas (schema.yml en raíz)
 │   ├── dimOperators.sql                ← Modelos legacy (sin schema.yml)
 │   ├── dimRoutes.sql
 │   ├── FrequencyDailySummary.sql
@@ -113,7 +129,8 @@ wh_transform/
 ├── macros/
 │   ├── sonnell_recalc_subsystem_costs.sql
 │   ├── sonnell_recalc_offsets_by_month.sql
-│   └── sonnell_recalc_invoice_by_month.sql
+│   ├── sonnell_recalc_invoice_by_month.sql
+│   └── ama_backfill_gps_comunicacion.sql  ← Backfill GPS_Comunicacion para N días
 ├── tests/                              ← Tests singulares (assert_*.sql)
 ├── snapshots/
 ├── seeds/
@@ -166,16 +183,19 @@ wh_transform/
 
 ## Fuentes de Datos Registradas
 
-| Source | Schema | Entidades Principales | Notas |
-|--------|--------|-----------------------|-------|
-| `sonnell` | `dbo` | SonnellDailySummary, SonnellRates, SonnellCheckpoints, SonnellParameters, SonnellOffsetApplied, SonnellSubsystemCost, SonnellInvoiceTotals | Pipeline de facturación Sonnell. Las tablas de output (`SonnellSubsystemCost`, etc.) también registradas como source para post-hooks. |
-| `external` | `raw` | sonnell_trip, sonnell_subsystem, Sonnell_checkpoin | Tablas externas del data lake (Parquet). Source name en dbt: `sonnell_raw` según convención; registradas en `external.yml`. |
-| `geotab` | `staging` | geotab_trip, geotab_device, geotab_device_status_info, geotab_log_record, geotab_exception_event, geotab_zone, geotab_zone_type, geotab_rule, geotab_route, geotab_route_plan_item, geotab_fault_data, geotab_group, geotab_status_data, geotab_planned_vs_actual | Fuente de datos de flota AMA. |
-| `ama` | `dbo` | AMA_Itinerario | Itinerario programado AMA. Disponible desde 2026-03-26. |
-| `gtfs` | `dbo` | gtfs_trips, gtfs_stop_times, gtfs_routes, gtfs_calendar_dates | GTFS estático. Nota: `.gtfs_calendar_dates` tiene un punto en el nombre en el YAML (posible typo). |
-| `korbato` | `dbo` | fleet, vehicle_day, trip, vwRoutes, visit, trip_sch_match | Fuente de datos Korbato. |
-| `tdev` | `dbo` | TDEVDailySummary, TDEVCheckpoints, TDEVTrips, TDEVSubsystemCost, TDEVSubsystemOffset | Pipeline TDEV (producción). |
-| `tdev_dev` | `dev` | TDEVDailySummary, TDEVCheckpoints, TDEVTrips, TDEVSubsystemCost, TDEVSubsystemOffset | Pipeline TDEV (entorno desarrollo). |
+| Source | Database | Schema | Entidades Principales | Notas |
+|--------|----------|--------|-----------------------|-------|
+| `sonnell` | ati_datawarehouse | `dbo` | SonnellDailySummary, SonnellRates, SonnellCheckpoints, SonnellParameters, SonnellOffsetApplied, SonnellSubsystemCost, SonnellInvoiceTotals | Pipeline de facturación Sonnell. Las tablas de output también registradas como source para post-hooks. |
+| `external` | ati_datawarehouse | `raw` | sonnell_trip, sonnell_subsystem, Sonnell_checkpoin | Tablas externas del data lake (Parquet). Registradas en `external.yml`. |
+| `geotab` | ati_datawarehouse | `staging` | geotab_trip, geotab_device, geotab_device_status_info, geotab_log_record, geotab_exception_event, geotab_zone, geotab_zone_type, geotab_rule, geotab_route, geotab_route_plan_item, geotab_fault_data, geotab_group, geotab_status_data, geotab_planned_vs_actual | Fuente de datos de flota AMA. |
+| `ama` | ati_datawarehouse | `dbo` | AMA_Itinerario | Itinerario programado AMA. Disponible desde 2026-03-26. |
+| `hms` | ati_datawarehouse | `raw` | hms_trips | Trips de ferry HMS (datos crudos del data lake). Registrado en `hms.yml`. |
+| `hms_output` | ati_datawarehouse | `dbo` | HMS_MonthlyDataTrip, HmsNtdData | Tablas de salida HMS registradas para referencias en post-hooks. |
+| `ati_lakehouse` | ati_lakehouse | `dbo` | control_raw_file_status | Tabla de control de ingesta de notebooks. Fuente del modelo de monitoreo. Base de datos separada — requiere acceso cross-database. |
+| `gtfs` | ati_datawarehouse | `dbo` | gtfs_trips, gtfs_stop_times, gtfs_routes, gtfs_calendar_dates | GTFS estático. Nota: `.gtfs_calendar_dates` tiene un punto en el nombre en el YAML (posible typo). |
+| `korbato` | ati_datawarehouse | `dbo` | fleet, vehicle_day, trip, vwRoutes, visit, trip_sch_match | Fuente de datos Korbato. |
+| `tdev` | ati_datawarehouse | `dbo` | TDEVDailySummary, TDEVCheckpoints, TDEVTrips, TDEVSubsystemCost, TDEVSubsystemOffset | Pipeline TDEV (producción). |
+| `tdev_dev` | ati_datawarehouse | `dev` | TDEVDailySummary, TDEVCheckpoints, TDEVTrips, TDEVSubsystemCost, TDEVSubsystemOffset | Pipeline TDEV (entorno desarrollo). |
 
 ---
 
@@ -206,6 +226,42 @@ wh_transform/
 | `stg_geotab__zone` | intermediate (ephemeral) | Zona Geotab con tipo parseado | ephemeral | Sin tests |
 | `stg_geotab_device` | intermediate (ephemeral) | Dispositivo Geotab normalizado | ephemeral | Sin tests |
 
+### Dominio: HMS (Ferry)
+
+| Modelo | Layer | Grain | Materialización | Tests |
+|--------|-------|-------|-----------------|-------|
+| `stg_hms__trips` | staging (ephemeral) | Row deduplicado de hms_trips | ephemeral | not_null en date, vessel, route, scheduled_departure_time, pax |
+| `fct_hms_monthly_trips` | fact | Row de trip ferry (alias HMS_MonthlyDataTrip) | table (`HASH(Id)`, CCI) | unique + not_null en Id; not_null en Date, Vessel, Route |
+| `fct_hms_ntd_data` | fact | `(Vessel, Route, Date, IsOutbound, IsMissed)` (alias HmsNtdData) | incremental (append, `HASH(Date)`, CCI) | unique compuesto; not_null + accepted_values en IsOutbound, IsMissed, DayOfWeek |
+
+### Dominio: Monitoring (Pipeline Health)
+
+| Modelo | Layer | Grain | Materialización | Tests |
+|--------|-------|-------|-----------------|-------|
+| `stg_control_status` | staging (ephemeral) | Row de control_raw_file_status con entity_name + domain parseados | ephemeral | — |
+| `stg_entity_config` | staging (ephemeral) | expected_frequency_hrs por dominio (inline) | ephemeral | — |
+| `int_daily_aggregates` | intermediate (ephemeral) | `(event_date, entity_name, domain)` | ephemeral | — |
+| `int_baseline_7d` | intermediate (ephemeral) | `(event_date, entity_name, domain)` con baseline estadístico | ephemeral | — |
+| `int_latest_errors` | intermediate (ephemeral) | Último error por `(event_date, entity_name, domain)` | ephemeral | — |
+| `int_health_metrics` | intermediate (ephemeral) | health_score + SLA flags | ephemeral | — |
+| `fct_pipeline_health_daily` | fact | `(event_date, entity_name, domain)` | incremental (delete+insert, 7-day lookback, ROUND_ROBIN) | unique_combination_of_columns; expression_is_true; accepted_values en health_status, domain |
+
+### Dominio: ATI Datawarehouse (Korbato Migration)
+
+| Modelo | Layer | Notas |
+|--------|-------|-------|
+| `ati_datawarehouse/fleet` | fact | Tabla: `HASH(fleet_key)`, CCI. Tag: `ati_datawarehouse` |
+| `ati_datawarehouse/trip` etc. | fact | Similar patrón: table, HASH dist, CCI. Leer cada modelo para grain. |
+| `ati_datawarehouse/deduplicated/*` | staging (ephemeral) | Dedup de cada entidad Korbato |
+| `ati_datawarehouse/intermediate/*` | intermediate | Transformaciones previas a la tabla final |
+
+### SCD Type 2 (raíz de models/)
+
+| Modelo | Grain | Materialización | Tests |
+|--------|-------|-----------------|-------|
+| `fct_operator_scd` | `(operator_id, valid_from)` | incremental (UPDATE pre_hook + INSERT append) | unique + not_null en scd_id; not_null en operator_id, valid_from, is_current |
+| `fct_route_scd` | `(operator_id, route_id, valid_from)` | incremental (UPDATE pre_hook + INSERT append) | unique + not_null en scd_id; not_null en route_id, is_current |
+
 ### Modelos Legacy / Ad-hoc
 
 | Modelo | Layer | Notas |
@@ -220,7 +276,7 @@ wh_transform/
 ## Packages Instalados
 
 > `packages.yml` — **(archivo no encontrado en el repositorio)**
-> No hay paquetes dbt registrados. Si se instala alguno, crear `packages.yml` en la raíz y actualizar esta sección.
+> El modelo `fct_pipeline_health_daily` usa tests de `dbt_utils` (`unique_combination_of_columns`, `expression_is_true`). Crear `packages.yml` con `dbt-labs/dbt_utils` antes de correr `dbt test` sobre el dominio monitoring.
 
 ---
 
