@@ -6,7 +6,7 @@ models:
       Agregacion diaria por (event_date, entity_name, domain).
       Cuenta ejecuciones y suma records por status.
     config:
-      materialized: view
+      materialized: ephemeral
       tags: ['monitoring', 'intermediate']
 
   - name: int_baseline_7d
@@ -14,7 +14,7 @@ models:
       Calcula baseline de 7 dias para deteccion de anomalias de volumen.
       Incluye promedio, stddev, variacion porcentual y z-score.
     config:
-      materialized: view
+      materialized: ephemeral
       tags: ['monitoring', 'intermediate']
 
   - name: int_latest_errors
@@ -22,15 +22,13 @@ models:
       Obtiene el ultimo error por (event_date, entity_name, domain)
       usando ROW_NUMBER sobre process_datetime DESC.
     config:
-      materialized: view
+      materialized: ephemeral
       tags: ['monitoring', 'intermediate']
 
   - name: int_health_metrics
     description: >
       Calcula health_score (0-100), health_status, anomaly flags y SLA compliance.
-      Materializado como view (no ephemeral) para que fct_pipeline_health_daily pueda
-      referenciarlo sin CTE expansion, evitando el error de sintaxis INSERT INTO ... WITH
-      en Synapse T-SQL.
+      Compila inline como CTE en fct_pipeline_health_daily.
     config:
-      materialized: view
+      materialized: ephemeral
       tags: ['monitoring', 'intermediate']
