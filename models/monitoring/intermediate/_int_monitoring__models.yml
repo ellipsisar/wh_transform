@@ -28,8 +28,7 @@ models:
   - name: int_health_metrics
     description: >
       Calcula health_score (0-100), health_status, anomaly flags y SLA compliance.
-      Materializado como view para absorber los CTEs de los modelos ephemeral upstream
-      y evitar la limitacion de Synapse con INSERT INTO ... WITH cte.
+      Compila inline como CTE en fct_pipeline_health_daily.
     config:
-      materialized: view
+      materialized: ephemeral
       tags: ['monitoring', 'intermediate']
