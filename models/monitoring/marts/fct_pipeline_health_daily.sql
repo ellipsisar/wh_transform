@@ -46,8 +46,8 @@ SELECT
     -- Baseline y variacion
     CAST(baseline_7d_avg         AS DECIMAL(18,2)) AS baseline_7d_avg,
     CAST(baseline_7d_stddev      AS DECIMAL(18,2)) AS baseline_7d_stddev,
-    CAST(volume_variation_pct    AS DECIMAL(8,4))  AS volume_variation_pct,
-    CAST(volume_zscore           AS DECIMAL(8,4))  AS volume_zscore,
+    CAST(volume_variation_pct    AS DECIMAL(18,4)) AS volume_variation_pct,
+    CAST(volume_zscore           AS DECIMAL(18,4)) AS volume_zscore,
 
     -- Salud y anomalias
     CAST(health_score            AS DECIMAL(5,2))  AS health_score,
