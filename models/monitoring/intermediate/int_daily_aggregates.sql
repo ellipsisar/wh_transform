@@ -4,10 +4,6 @@
   )
 }}
 
-WITH staged AS (
-    SELECT * FROM {{ ref('stg_control_status') }}
-)
-
 SELECT
     event_date,
     entity_name,
@@ -25,7 +21,7 @@ SELECT
     MAX(CASE WHEN status = 'FAILED'    THEN process_datetime ELSE NULL END) AS last_error_datetime,
     MAX(CASE WHEN status = 'FAILED'    THEN error_message    ELSE NULL END) AS last_error_message
 
-FROM staged
+FROM {{ ref('stg_control_status') }}
 GROUP BY
     event_date,
     entity_name,

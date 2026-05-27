@@ -4,13 +4,14 @@
   )
 }}
 
-WITH failed_events AS (
-    SELECT * FROM {{ ref('stg_control_status') }}
-    WHERE status = 'FAILED'
-      AND error_message IS NOT NULL
-),
+SELECT
+    event_date,
+    entity_name,
+    domain,
+    error_message   AS latest_error_message,
+    error_datetime  AS latest_error_datetime
 
-ranked AS (
+FROM (
     SELECT
         event_date,
         entity_name,
@@ -21,14 +22,9 @@ ranked AS (
             PARTITION BY event_date, entity_name, domain
             ORDER BY process_datetime DESC
         ) AS rn
-    FROM failed_events
-)
+    FROM {{ ref('stg_control_status') }}
+    WHERE status = 'FAILED'
+      AND error_message IS NOT NULL
+) AS ranked
 
-SELECT
-    event_date,
-    entity_name,
-    domain,
-    error_message AS latest_error_message,
-    error_datetime AS latest_error_datetime
-FROM ranked
 WHERE rn = 1
