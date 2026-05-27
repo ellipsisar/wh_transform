@@ -1,0 +1,260 @@
+version: 2
+
+sources:
+  - name: ati_lakehouse
+    description: Lake database de PRITA en Synapse
+    database: ati_lakehouse
+    schema: dbo
+    tables:
+      - name: control_raw_file_status
+        description: >
+          Tabla de control que registra el estado de cada archivo/batch
+          procesado por los notebooks de ingesta.
+        columns:
+          - name: filename
+            description: Nombre del archivo o batch procesado
+          - name: status
+            description: Estado del procesamiento (processed, failed, skipped)
+          - name: process_datetime
+            description: Timestamp de cuando se proceso
+          - name: error_message
+            description: Mensaje de error si hubo fallo (NULL si exitoso)
+          - name: record_count
+            description: Cantidad de registros procesados
+        freshness:
+          warn_after:  {count: 24, period: hour}
+          error_after: {count: 48, period: hour}
+        loaded_at_field: process_datetime
+
+models:
+  - name: fct_pipeline_health_daily
+    description: >
+      Unica tabla materializada del modelo de monitoreo de ingesta.
+
+      Granularidad: una fila por (event_date, entity_name, domain).
+      Estrategia: incremental con DELETE+INSERT y lookback de 7 dias
+      para recalcular baselines correctamente.
+
+      Todos los modelos staging e intermediate son ephemeral y se
+      compilan como CTEs inline en este modelo.
+
+      Casos de uso:
+        - Dashboard de monitoreo de pipelines
+        - Deteccion de anomalias de volumen (zero-records, volume drop)
+        - Tracking de SLA compliance por dominio
+        - Analisis de tendencias de errores
+
+    config:
+      tags: ['monitoring', 'daily', 'fact']
+      meta:
+        owner: data-engineering
+        tier: gold
+        refresh_frequency: daily
+
+    columns:
+      # --- Dimensiones de granularidad ---
+      - name: event_date
+        description: Fecha del evento (parte de la clave primaria compuesta)
+        data_type: date
+        tests:
+          - not_null
+      - name: entity_name
+        description: >
+          Nombre de la entidad/notebook. Ejemplos: geotab_device, tdev_trip.
+        data_type: varchar(255)
+        tests:
+          - not_null
+      - name: domain
+        description: >
+          Dominio al que pertenece la entidad.
+          Valores: geotab, transdev, sonnell, hms, gtfs, ama_legacy, other.
+        data_type: varchar(50)
+        tests:
+          - not_null
+          - accepted_values:
+              values: ['geotab', 'transdev', 'sonnell', 'hms', 'gtfs', 'ama_legacy', 'other']
+
+      # --- Metricas de volumen ---
+      - name: records_processed
+        description: Total de registros procesados exitosamente en el dia
+        data_type: bigint
+        tests:
+          - not_null
+          - dbt_utils.expression_is_true:
+              expression: ">= 0"
+      - name: records_failed
+        description: Total de registros en batches fallidos
+        data_type: bigint
+        tests:
+          - dbt_utils.expression_is_true:
+              expression: ">= 0"
+      - name: executions_total
+        description: Cantidad total de ejecuciones del pipeline en el dia
+        data_type: int
+        tests:
+          - not_null
+          - dbt_utils.expression_is_true:
+              expression: ">= 0"
+      - name: executions_success
+        description: Ejecuciones exitosas (status = PROCESSED)
+        data_type: int
+        tests:
+          - dbt_utils.expression_is_true:
+              expression: ">= 0"
+      - name: executions_failed
+        description: Ejecuciones fallidas (status = FAILED)
+        data_type: int
+        tests:
+          - dbt_utils.expression_is_true:
+              expression: ">= 0"
+      - name: executions_skipped
+        description: Ejecuciones omitidas (status = SKIPPED)
+        data_type: int
+        tests:
+          - dbt_utils.expression_is_true:
+              expression: ">= 0"
+
+      # --- Baseline y variacion ---
+      - name: baseline_7d_avg
+        description: >
+          Promedio de records_processed de los 7 dias previos.
+          NULL si hay menos de 3 dias de datos historicos.
+        data_type: decimal(18,2)
+      - name: baseline_7d_stddev
+        description: >
+          Desviacion estandar de records_processed en ventana de 7 dias.
+          NULL si hay menos de 3 dias de datos historicos.
+        data_type: decimal(18,2)
+        tests:
+          - dbt_utils.expression_is_true:
+              expression: ">= 0"
+              config:
+                where: "baseline_7d_stddev IS NOT NULL"
+      - name: volume_variation_pct
+        description: >
+          Variacion porcentual vs baseline.
+          Formula: ((records_processed - baseline_7d_avg) / baseline_7d_avg) * 100.
+          Negativo = caida de volumen.
+        data_type: decimal(8,4)
+      - name: volume_zscore
+        description: >
+          Z-score estadistico del volumen actual.
+          |zscore| > 2.5 indica anomalia.
+        data_type: decimal(8,4)
+
+      # --- Salud y anomalias ---
+      - name: health_score
+        description: >
+          Score de salud 0-100. Compuesto por:
+            success rate (40 pts) + volume consistency (30 pts) + no anomalies (30 pts).
+        data_type: decimal(5,2)
+        tests:
+          - dbt_utils.expression_is_true:
+              expression: ">= 0 AND health_score <= 100"
+              config:
+                where: "health_score IS NOT NULL"
+      - name: health_status
+        description: >
+          Estado derivado del health_score.
+          HEALTHY >= 80 | WARNING >= 50 | CRITICAL < 50 | NO_DATA si sin ejecuciones.
+        data_type: varchar(20)
+        tests:
+          - not_null
+          - accepted_values:
+              values: ['HEALTHY', 'WARNING', 'CRITICAL', 'NO_DATA']
+      - name: is_volume_anomaly
+        description: "1 si |volume_zscore| > 2.5"
+        data_type: bit
+        tests:
+          - accepted_values:
+              values: [0, 1]
+      - name: is_zero_records
+        description: "1 si records_processed = 0 con al menos una ejecucion exitosa"
+        data_type: bit
+        tests:
+          - accepted_values:
+              values: [0, 1]
+      - name: is_high_failure_rate
+        description: "1 si tasa de fallos supera el 20%"
+        data_type: bit
+        tests:
+          - accepted_values:
+              values: [0, 1]
+
+      # --- Metricas de error ---
+      - name: error_count
+        description: Cantidad de ejecuciones con error en el dia
+        data_type: int
+        tests:
+          - dbt_utils.expression_is_true:
+              expression: ">= 0"
+      - name: error_rate_pct
+        description: "Porcentaje de ejecuciones fallidas: (executions_failed / executions_total) * 100"
+        data_type: decimal(8,4)
+        tests:
+          - dbt_utils.expression_is_true:
+              expression: ">= 0 AND error_rate_pct <= 100"
+              config:
+                where: "error_rate_pct IS NOT NULL"
+      - name: last_error_message
+        description: Mensaje del ultimo error del dia (NULL si no hubo errores)
+        data_type: varchar(4000)
+      - name: last_error_datetime
+        description: Timestamp del ultimo error del dia
+        data_type: datetime2
+
+      # --- SLA y freshness ---
+      - name: last_success_datetime
+        description: Timestamp de la ultima ejecucion exitosa del dia
+        data_type: datetime2
+      - name: hours_since_success
+        description: >
+          Horas desde la ultima ejecucion exitosa hasta el fin del event_date.
+          Usado para evaluar SLA compliance.
+        data_type: int
+      - name: expected_frequency_hrs
+        description: >
+          Frecuencia esperada de ejecucion en horas, segun configuracion del dominio.
+          Ej: 24 (diario), 168 (semanal).
+        data_type: int
+        tests:
+          - not_null
+          - dbt_utils.expression_is_true:
+              expression: "> 0"
+      - name: sla_met
+        description: "1 si hours_since_success <= expected_frequency_hrs"
+        data_type: bit
+        tests:
+          - not_null
+          - accepted_values:
+              values: [0, 1]
+      - name: sla_breach_reason
+        description: Descripcion del incumplimiento de SLA (NULL si sla_met = 1)
+        data_type: varchar(255)
+
+      # --- Metadata ---
+      - name: dbt_updated_at
+        description: Timestamp de cuando DBT materializo esta fila
+        data_type: datetime2
+        tests:
+          - not_null
+      - name: dbt_run_id
+        description: Identificador unico del run de DBT
+        data_type: varchar(100)
+        tests:
+          - not_null
+
+    tests:
+      - dbt_utils.unique_combination_of_columns:
+          combination_of_columns:
+            - event_date
+            - entity_name
+            - domain
+      - dbt_utils.expression_is_true:
+          expression: "executions_total = executions_success + executions_failed + executions_skipped"
+          config:
+            severity: error
+      - dbt_utils.expression_is_true:
+          expression: "event_date <= CAST(GETDATE() AS DATE)"
+          config:
+            severity: error
