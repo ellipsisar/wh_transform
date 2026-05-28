@@ -91,14 +91,17 @@ with_health AS (
             (30 - (is_volume_anomaly * 10) - (is_zero_records * 10) - (is_high_failure_rate * 10))
         AS DECIMAL(5, 2)) AS health_score,
 
-        -- SLA compliance
+        -- SLA compliance (NULL for snapshots)
         CASE
-            WHEN last_success_datetime IS NULL                           THEN 0
-            WHEN hours_since_success_eod <= expected_frequency_hrs       THEN 1
-            ELSE 0
+            WHEN entity_type = 'snapshot'                                THEN CAST(NULL AS BIT)
+            WHEN last_success_datetime IS NULL                           THEN CAST(0 AS BIT)
+            WHEN hours_since_success_eod <= expected_frequency_hrs       THEN CAST(1 AS BIT)
+            ELSE CAST(0 AS BIT)
         END AS sla_met,
 
         CASE
+            WHEN entity_type = 'snapshot'
+                THEN 'N/A - snapshot file'
             WHEN last_success_datetime IS NULL
                 THEN 'No successful execution recorded'
             WHEN hours_since_success_eod > expected_frequency_hrs
@@ -114,6 +117,9 @@ SELECT
     event_date,
     entity_name,
     domain,
+    entity_type,
+    entity_base_name,
+    snapshot_file_date,
     records_processed,
     records_failed,
     executions_total,
@@ -127,9 +133,12 @@ SELECT
     health_score,
 
     CASE
-        WHEN executions_total = 0 THEN 'NO_DATA'
-        WHEN health_score >= 80   THEN 'HEALTHY'
-        WHEN health_score >= 50   THEN 'WARNING'
+        WHEN executions_total = 0                                  THEN 'NO_DATA'
+        WHEN entity_type = 'snapshot' AND executions_success > 0   THEN 'HEALTHY'
+        WHEN entity_type = 'snapshot' AND executions_failed > 0    THEN 'CRITICAL'
+        WHEN entity_type = 'snapshot'                              THEN 'WARNING'
+        WHEN health_score >= 80                                    THEN 'HEALTHY'
+        WHEN health_score >= 50                                    THEN 'WARNING'
         ELSE 'CRITICAL'
     END AS health_status,
 
