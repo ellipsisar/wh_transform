@@ -67,12 +67,33 @@ models:
       - name: domain
         description: >
           Dominio al que pertenece la entidad.
-          Valores: geotab, transdev, sonnell, hms, gtfs, ama_legacy, other.
+          Valores recurring: geotab, transdev, sonnell, hms, gtfs, ama_legacy, other.
+          Valores snapshot: snapshot_sonnell, snapshot_transdev, snapshot_ama_legacy, snapshot_other.
         data_type: varchar(50)
         tests:
           - not_null
           - accepted_values:
-              values: ['geotab', 'transdev', 'sonnell', 'hms', 'gtfs', 'ama_legacy', 'other']
+              values: ['geotab', 'transdev', 'sonnell', 'hms', 'gtfs', 'ama_legacy', 'other', 'snapshot_sonnell', 'snapshot_transdev', 'snapshot_ama_legacy', 'snapshot_other']
+      - name: entity_type
+        description: Tipo de archivo (recurring o snapshot)
+        data_type: varchar(20)
+        tests:
+          - not_null
+          - accepted_values:
+              values: ['recurring', 'snapshot']
+      - name: entity_base_name
+        description: >
+          Nombre base de la entidad sin prefijo de fecha.
+          Para snapshots, es entity_name sin YYYYMMDD_.
+          Para recurring, es igual a entity_name.
+        data_type: varchar(255)
+        tests:
+          - not_null
+      - name: snapshot_file_date
+        description: >
+          Fecha extraida del filename para archivos snapshot (YYYYMMDD).
+          NULL para archivos recurring.
+        data_type: date
 
       # --- Metricas de volumen ---
       - name: records_processed
@@ -222,12 +243,15 @@ models:
           - dbt_utils.expression_is_true:
               expression: "> 0"
       - name: sla_met
-        description: "1 si hours_since_success <= expected_frequency_hrs"
+        description: >
+          1 si hours_since_success <= expected_frequency_hrs.
+          NULL para archivos snapshot (no aplica SLA).
         data_type: bit
         tests:
-          - not_null
           - accepted_values:
               values: [0, 1]
+              config:
+                where: "entity_type = 'recurring'"
       - name: sla_breach_reason
         description: Descripcion del incumplimiento de SLA (NULL si sla_met = 1)
         data_type: varchar(255)

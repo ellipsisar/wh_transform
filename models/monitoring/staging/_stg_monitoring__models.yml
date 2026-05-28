@@ -5,9 +5,41 @@ models:
     description: >
       Limpieza y normalizacion de control_raw_file_status.
       Extrae entity_name del filename y determina el domain.
+      Detecta archivos snapshot (YYYYMMDD_ prefix) vs recurring files.
     config:
       materialized: ephemeral
       tags: ['monitoring', 'staging']
+    columns:
+      - name: filename
+        description: Nombre del archivo procesado
+      - name: status
+        description: Estado del procesamiento (PROCESSED, FAILED, SKIPPED, UNKNOWN)
+      - name: process_datetime
+        description: Timestamp de cuando se proceso el archivo
+      - name: error_message
+        description: Mensaje de error si hubo fallo
+      - name: record_count
+        description: Cantidad de registros en el archivo
+      - name: event_date
+        description: Fecha del evento (derivada de process_datetime)
+      - name: entity_name
+        description: Nombre de la entidad extraido del filename
+      - name: domain
+        description: Dominio al que pertenece la entidad
+      - name: entity_type
+        description: Tipo de archivo (snapshot o recurring)
+        tests:
+          - accepted_values:
+              values: ['recurring', 'snapshot']
+      - name: entity_base_name
+        description: >
+          Nombre base de la entidad sin el prefijo de fecha.
+          Para snapshots, es entity_name sin YYYYMMDD_.
+          Para recurring, es igual a entity_name.
+      - name: snapshot_file_date
+        description: >
+          Fecha extraida del filename para archivos snapshot (YYYYMMDD).
+          NULL para archivos recurring.
 
   - name: stg_entity_config
     description: >

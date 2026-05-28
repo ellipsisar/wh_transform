@@ -8,6 +8,9 @@ SELECT
     event_date,
     entity_name,
     domain,
+    entity_type,
+    entity_base_name,
+    snapshot_file_date,
 
     SUM(CASE WHEN status = 'PROCESSED' THEN record_count ELSE 0 END) AS records_processed,
     SUM(CASE WHEN status = 'FAILED'    THEN record_count ELSE 0 END) AS records_failed,
@@ -25,4 +28,7 @@ FROM {{ ref('stg_control_status') }}
 GROUP BY
     event_date,
     entity_name,
-    domain
+    domain,
+    entity_type,
+    entity_base_name,
+    snapshot_file_date
