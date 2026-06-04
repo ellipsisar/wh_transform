@@ -7,6 +7,16 @@
     pre_hook             = [
       "IF NOT EXISTS (SELECT * FROM sys.schemas WHERE name = 'monitoring') EXEC('CREATE SCHEMA [monitoring]')",
       "{% if is_incremental() %}DELETE FROM {{ this }} WHERE event_date >= DATEADD(DAY, -7, CAST(GETDATE() AS DATE)){% endif %}"
+    ],
+    post_hook            = [
+      "IF NOT EXISTS (SELECT 1 FROM sys.stats WHERE name = 'stat_phd_event_date' AND object_id = OBJECT_ID('{{ this }}')) EXEC sp_executesql N'CREATE STATISTICS stat_phd_event_date ON {{ this }} (event_date)'",
+      "IF NOT EXISTS (SELECT 1 FROM sys.stats WHERE name = 'stat_phd_domain' AND object_id = OBJECT_ID('{{ this }}')) EXEC sp_executesql N'CREATE STATISTICS stat_phd_domain ON {{ this }} (domain)'",
+      "IF NOT EXISTS (SELECT 1 FROM sys.stats WHERE name = 'stat_phd_entity_name' AND object_id = OBJECT_ID('{{ this }}')) EXEC sp_executesql N'CREATE STATISTICS stat_phd_entity_name ON {{ this }} (entity_name)'",
+      "IF NOT EXISTS (SELECT 1 FROM sys.stats WHERE name = 'stat_phd_entity_base_name' AND object_id = OBJECT_ID('{{ this }}')) EXEC sp_executesql N'CREATE STATISTICS stat_phd_entity_base_name ON {{ this }} (entity_base_name)'",
+      "IF NOT EXISTS (SELECT 1 FROM sys.stats WHERE name = 'stat_phd_health_status' AND object_id = OBJECT_ID('{{ this }}')) EXEC sp_executesql N'CREATE STATISTICS stat_phd_health_status ON {{ this }} (health_status)'",
+      "IF NOT EXISTS (SELECT 1 FROM sys.stats WHERE name = 'stat_phd_zscore' AND object_id = OBJECT_ID('{{ this }}')) EXEC sp_executesql N'CREATE STATISTICS stat_phd_zscore ON {{ this }} (volume_zscore)'",
+      "IF NOT EXISTS (SELECT 1 FROM sys.stats WHERE name = 'stat_phd_sla_met' AND object_id = OBJECT_ID('{{ this }}')) EXEC sp_executesql N'CREATE STATISTICS stat_phd_sla_met ON {{ this }} (sla_met)'",
+      "IF NOT EXISTS (SELECT 1 FROM sys.stats WHERE name = 'stat_phd_event_date_domain' AND object_id = OBJECT_ID('{{ this }}')) EXEC sp_executesql N'CREATE STATISTICS stat_phd_event_date_domain ON {{ this }} (event_date, domain)'"
     ]
   )
 }}
