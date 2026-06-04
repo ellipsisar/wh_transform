@@ -162,6 +162,11 @@ models:
           Z-score estadistico del volumen actual.
           |zscore| > 2.5 indica anomalia.
         data_type: decimal(8,4)
+      - name: abs_volume_zscore
+        description: >
+          Valor absoluto de volume_zscore.
+          Usado por APIs externos para ordenamiento por magnitud de anomalia.
+        data_type: decimal(18,4)
 
       # --- Salud y anomalias ---
       - name: health_score
@@ -242,6 +247,15 @@ models:
           - not_null
           - dbt_utils.expression_is_true:
               expression: "> 0"
+      - name: is_recurring
+        description: >
+          1 si la entidad es de tipo recurring (expected_frequency_hrs IS NOT NULL).
+          0 para snapshots o entidades sin SLA.
+        data_type: bit
+        tests:
+          - not_null
+          - accepted_values:
+              values: [0, 1]
       - name: sla_met
         description: >
           1 si hours_since_success <= expected_frequency_hrs.

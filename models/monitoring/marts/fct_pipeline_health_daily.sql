@@ -7,6 +7,16 @@
     pre_hook             = [
       "IF NOT EXISTS (SELECT * FROM sys.schemas WHERE name = 'monitoring') EXEC('CREATE SCHEMA [monitoring]')",
       "{% if is_incremental() %}DELETE FROM {{ this }} WHERE event_date >= DATEADD(DAY, -7, CAST(GETDATE() AS DATE)){% endif %}"
+    ],
+    post_hook            = [
+      "IF NOT EXISTS (SELECT 1 FROM sys.stats WHERE name = 'stat_phd_event_date' AND object_id = OBJECT_ID('{{ this }}')) EXEC sp_executesql N'CREATE STATISTICS stat_phd_event_date ON {{ this }} (event_date)'",
+      "IF NOT EXISTS (SELECT 1 FROM sys.stats WHERE name = 'stat_phd_domain' AND object_id = OBJECT_ID('{{ this }}')) EXEC sp_executesql N'CREATE STATISTICS stat_phd_domain ON {{ this }} (domain)'",
+      "IF NOT EXISTS (SELECT 1 FROM sys.stats WHERE name = 'stat_phd_entity_name' AND object_id = OBJECT_ID('{{ this }}')) EXEC sp_executesql N'CREATE STATISTICS stat_phd_entity_name ON {{ this }} (entity_name)'",
+      "IF NOT EXISTS (SELECT 1 FROM sys.stats WHERE name = 'stat_phd_entity_base_name' AND object_id = OBJECT_ID('{{ this }}')) EXEC sp_executesql N'CREATE STATISTICS stat_phd_entity_base_name ON {{ this }} (entity_base_name)'",
+      "IF NOT EXISTS (SELECT 1 FROM sys.stats WHERE name = 'stat_phd_health_status' AND object_id = OBJECT_ID('{{ this }}')) EXEC sp_executesql N'CREATE STATISTICS stat_phd_health_status ON {{ this }} (health_status)'",
+      "IF NOT EXISTS (SELECT 1 FROM sys.stats WHERE name = 'stat_phd_zscore' AND object_id = OBJECT_ID('{{ this }}')) EXEC sp_executesql N'CREATE STATISTICS stat_phd_zscore ON {{ this }} (volume_zscore)'",
+      "IF NOT EXISTS (SELECT 1 FROM sys.stats WHERE name = 'stat_phd_sla_met' AND object_id = OBJECT_ID('{{ this }}')) EXEC sp_executesql N'CREATE STATISTICS stat_phd_sla_met ON {{ this }} (sla_met)'",
+      "IF NOT EXISTS (SELECT 1 FROM sys.stats WHERE name = 'stat_phd_event_date_domain' AND object_id = OBJECT_ID('{{ this }}')) EXEC sp_executesql N'CREATE STATISTICS stat_phd_event_date_domain ON {{ this }} (event_date, domain)'"
     ]
   )
 }}
@@ -51,6 +61,7 @@ SELECT
     CAST(baseline_7d_stddev      AS DECIMAL(18,2)) AS baseline_7d_stddev,
     CAST(volume_variation_pct    AS DECIMAL(18,4)) AS volume_variation_pct,
     CAST(volume_zscore           AS DECIMAL(18,4)) AS volume_zscore,
+    CAST(ABS(volume_zscore)      AS DECIMAL(18,4)) AS abs_volume_zscore,
 
     -- Salud y anomalias
     CAST(health_score            AS DECIMAL(5,2))  AS health_score,
@@ -69,6 +80,7 @@ SELECT
     CAST(last_success_datetime   AS DATETIME2)     AS last_success_datetime,
     CAST(hours_since_success     AS INT)           AS hours_since_success,
     CAST(expected_frequency_hrs  AS INT)           AS expected_frequency_hrs,
+    CASE WHEN expected_frequency_hrs IS NOT NULL THEN CAST(1 AS BIT) ELSE CAST(0 AS BIT) END AS is_recurring,
     CAST(sla_met                 AS BIT)           AS sla_met,
     CAST(sla_breach_reason       AS VARCHAR(255))  AS sla_breach_reason,
 
