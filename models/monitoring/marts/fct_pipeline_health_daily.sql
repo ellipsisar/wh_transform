@@ -51,6 +51,7 @@ SELECT
     CAST(baseline_7d_stddev      AS DECIMAL(18,2)) AS baseline_7d_stddev,
     CAST(volume_variation_pct    AS DECIMAL(18,4)) AS volume_variation_pct,
     CAST(volume_zscore           AS DECIMAL(18,4)) AS volume_zscore,
+    CAST(ABS(volume_zscore)      AS DECIMAL(18,4)) AS abs_volume_zscore,
 
     -- Salud y anomalias
     CAST(health_score            AS DECIMAL(5,2))  AS health_score,
@@ -69,6 +70,7 @@ SELECT
     CAST(last_success_datetime   AS DATETIME2)     AS last_success_datetime,
     CAST(hours_since_success     AS INT)           AS hours_since_success,
     CAST(expected_frequency_hrs  AS INT)           AS expected_frequency_hrs,
+    CASE WHEN expected_frequency_hrs IS NOT NULL THEN CAST(1 AS BIT) ELSE CAST(0 AS BIT) END AS is_recurring,
     CAST(sla_met                 AS BIT)           AS sla_met,
     CAST(sla_breach_reason       AS VARCHAR(255))  AS sla_breach_reason,
 
