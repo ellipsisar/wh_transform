@@ -2,12 +2,38 @@ version: 2
 
 sources:
   - name: external
-    description: ""
+    description: "Tablas externas del data lake (Parquet) en schema raw. Leídas via PolyBase/external tables en Synapse."
     schema: raw
     tables:
-      - name: Sonnell_checkpoin
-      - name: sonnell_subsystem
+      # --- Sonnell (con freshness) ---
       - name: sonnell_trip
+        description: >
+          Viajes del pipeline Sonnell. Fuente de stg_sonnell_trip (alias SonnellTrips).
+          Cargado diariamente desde el data lake.
+        loaded_at_field: _md_processed_at
+        freshness:
+          warn_after:  {count: 2, period: day}
+          error_after: {count: 3, period: day}
+
+      - name: Sonnell_checkpoin
+        description: >
+          Checkpoints de OTP del pipeline Sonnell. Fuente de stg_sonnell_checkpoints (alias SonnellCheckpoints).
+          Cargado diariamente desde el data lake.
+        loaded_at_field: _md_processed_at
+        freshness:
+          warn_after:  {count: 2, period: day}
+          error_after: {count: 3, period: day}
+
+      - name: sonnell_subsystem
+        description: >
+          Resumen diario por subsistema del pipeline Sonnell. Fuente de stg_sonnell_daily_summary (alias SonnellDailySummary).
+          Cargado diariamente desde el data lake.
+        loaded_at_field: _md_processed_at
+        freshness:
+          warn_after:  {count: 2, period: day}
+          error_after: {count: 3, period: day}
+
+      # --- Korbato ATI (sin freshness configurada) ---
       - name: fleet
       - name: pattern
       - name: pattern_stop
