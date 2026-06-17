@@ -1,0 +1,338 @@
+version: 2
+
+models:
+  # ──────────────────────────────────────────────
+  # Ephemeral / Intermediate
+  # ──────────────────────────────────────────────
+
+  - name: stg_geotab_device
+    description: >
+      Modelo ephemeral que normaliza geotab_device deduplicando por device_id.
+      Conserva la fila más reciente según _md_processed_at.
+      Usado como fuente base en AMA_Geotab_GPS_Comunicacion.
+    columns:
+      - name: device_id
+        description: "Identificador único del dispositivo Geotab"
+      - name: device_name
+        description: "Nombre del dispositivo (coincide con el campo 'tren' del itinerario AMA)"
+      - name: comment
+        description: "Comentario libre asociado al dispositivo"
+      - name: active_from
+        description: "Fecha desde la cual el dispositivo está activo en Geotab"
+      - name: active_to
+        description: "Fecha de desactivación del dispositivo. NULL si está vigente"
+
+  - name: stg_geotab__zone
+    description: >
+      Modelo ephemeral que parsea el campo zone_types_json de geotab_zone y lo
+      une a geotab_zone_type para resolver el nombre del tipo de zona.
+      Maneja dos formatos de JSON: built-in (["ZoneTypeCustomerId"]) y
+      custom ([{"id": "b22"}]). No está referenciado por ningún modelo actualmente
+      — existe para reutilización futura.
+    columns:
+      - name: zone_id
+        description: "Identificador único de la zona en Geotab"
+      - name: zone_name
+        description: "Nombre descriptivo de la zona/terminal"
+      - name: external_reference
+        description: "Referencia externa opcional de la zona"
+      - name: must_identify_stops
+        description: "Indicador de si la zona debe identificarse como parada"
+      - name: active_from
+        description: "Fecha de activación de la zona"
+      - name: active_to
+        description: "Fecha de desactivación de la zona. NULL si está vigente"
+      - name: zone_type_ref
+        description: >
+          Referencia al tipo de zona: ID string para tipos custom (ej: 'b22'),
+          o nombre built-in para tipos de Geotab (ej: 'ZoneTypeCustomerId')
+      - name: is_custom_type
+        description: "BIT: 1 si el tipo es custom con registro en geotab_zone_type, 0 si es built-in"
+      - name: zone_type_name
+        description: "Nombre resuelto del tipo de zona. NULL para tipos built-in de Geotab"
+
+  # ──────────────────────────────────────────────
+  # Fact models
+  # ──────────────────────────────────────────────
+
+  - name: AMA_Geotab_Viajes
+    description: >
+      Fact table incremental de viajes Geotab enriquecidos con el itinerario AMA.
+      Grain: trip_id (un viaje por fila).
+      Fuente primaria: geotab_trip + geotab_device. El itinerario AMA se integra
+      vía join por (vehicle_name = tren, servicio_dia). Para trenes con múltiples
+      turnos en el día se elige el turno cuya hora programada sea más cercana a
+      la salida real. Cuando no hay itinerario disponible, terminal_name se resuelve
+      desde la última zona geotab visitada dentro de las 4 horas previas al viaje.
+      Ventana incremental: último día (pre_hook DELETE + append).
+    columns:
+      - name: trip_id
+        description: "Identificador único del viaje en Geotab"
+      - name: date
+        description: "Fecha del viaje truncada a medianoche (DATETIME), para agregaciones diarias"
+      - name: route_id
+        description: "ID de la ruta asignada al viaje, resuelto desde el itinerario AMA"
+      - name: route_name
+        description: "Nombre de la ruta asignada al viaje"
+      - name: terminal_name
+        description: >
+          Terminal de salida del viaje. Fuente primaria: campo 'parada' del
+          itinerario AMA (orden_parada = 0). Fallback: última zona geotab
+          visitada hasta 4 horas antes de la salida real
+      - name: vehicle_id
+        description: "ID del dispositivo/vehículo Geotab (device_id)"
+      - name: vehicle_name
+        description: "Nombre del dispositivo Geotab. Coincide con el campo 'tren' del itinerario AMA"
+      - name: vehicle_type
+        description: "Tipo de dispositivo según geotab_device"
+      - name: driver_id
+        description: "ID del conductor asignado al viaje"
+      - name: actual_departure
+        description: "Datetime real de inicio del viaje (trip_start de geotab_trip)"
+      - name: actual_arrival
+        description: "Datetime real de fin del viaje (trip_stop de geotab_trip)"
+      - name: trip_duration_minutes
+        description: "Duración del viaje en minutos (DATEDIFF entre actual_departure y actual_arrival)"
+      - name: scheduled_departure
+        description: >
+          Hora programada de salida según el itinerario AMA. NULL cuando el tren
+          no tiene itinerario registrado o el servicio no coincide
+      - name: delay_minutes
+        description: >
+          Diferencia en minutos entre scheduled_departure y actual_departure.
+          Positivo = salida tarde. Negativo = salida adelantada. NULL si no hay itinerario
+      - name: departure_status
+        description: >
+          Clasificación de puntualidad con margen ±2 minutos (definición AMA):
+          ON_SCHEDULE (-2 a +2 min), DELAYED (> +2 min), EARLY (< -2 min),
+          SIN_ITINERARIO (sin datos de itinerario para el viaje)
+      - name: distance_km
+        description: "Distancia recorrida en el viaje en kilómetros"
+      - name: average_speed_kmh
+        description: "Velocidad promedio del viaje en km/h"
+      - name: is_central_departure
+        description: >
+          BIT: 1 si el viaje parte desde la terminal Central (código 'SGDO' en el
+          itinerario). Pendiente confirmar código exacto con AMA
+      - name: stop_point_lat
+        description: "Latitud del punto de parada final del viaje"
+      - name: stop_point_lon
+        description: "Longitud del punto de parada final del viaje"
+
+  - name: AMA_Geotab_Salida_Vehiculos
+    description: >
+      Fact table incremental con KPIs diarios de puntualidad de salidas por ruta.
+      Grain: (date, route_id). Agrega los viajes de AMA_Geotab_Viajes por fecha
+      y ruta, calculando métricas de cumplimiento de itinerario.
+      El denominador de los porcentajes excluye viajes SIN_ITINERARIO.
+      Ventana incremental: último día (pre_hook DELETE + append).
+    columns:
+      - name: date
+        description: "Fecha de operación (DATETIME). ISNULL coalesce a '1900-01-01' si es NULL"
+      - name: route_id
+        description: "Identificador de la ruta (NVARCHAR 100)"
+      - name: route_name
+        description: "Nombre de la ruta (NVARCHAR 100)"
+      - name: cantidad_on_schedule_departure
+        description: "Count de vehículos distintos con salida clasificada como ON_SCHEDULE en el día"
+      - name: cantidad_delayed_departure
+        description: "Count de vehículos distintos con salida clasificada como DELAYED en el día"
+      - name: total_departures
+        description: "Total de viajes (salidas) registrados en el día para la ruta"
+      - name: cantidad_early_departure
+        description: "Count de vehículos distintos con salida clasificada como EARLY en el día"
+      - name: cantidad_sin_itinerario
+        description: "Count de vehículos distintos sin datos de itinerario en el día"
+      - name: pct_on_schedule
+        description: >
+          Porcentaje de vehículos con salida a tiempo sobre el total con itinerario
+          (excluye SIN_ITINERARIO). DECIMAL(5,2). NULL si no hay viajes con itinerario
+      - name: pct_delayed
+        description: >
+          Porcentaje de vehículos demorados sobre el total con itinerario. DECIMAL(5,2).
+          NULL si no hay viajes con itinerario
+      - name: avg_delay_minutes
+        description: "Promedio de minutos de demora calculado solo sobre viajes DELAYED. DECIMAL(8,2)"
+      - name: max_delay_minutes
+        description: "Máxima demora registrada en el día para la ruta (solo viajes DELAYED)"
+      - name: cantidad_vehicles_operated
+        description: "Cantidad de vehículos distintos que operaron en la ruta durante el día"
+      - name: avg_trip_duration_minutes
+        description: "Duración promedio de los viajes del día en minutos. DECIMAL(8,2)"
+      - name: avg_distance_km
+        description: "Distancia promedio de los viajes del día en kilómetros. DECIMAL(8,2)"
+      - name: cantidad_central_departures
+        description: "Count de vehículos distintos que partieron desde la terminal Central (is_central_departure = 1)"
+
+  - name: AMA_Geotab_Exceso_Velocidad
+    description: >
+      Fact table incremental de eventos de exceso de velocidad registrados por Geotab.
+      Grain: evento individual (device_id + log_datetime). Umbral fijo: 80 km/h.
+      Cada fila representa un registro GPS con velocidad superior al límite.
+      Ventana incremental: último día (pre_hook DELETE + append sobre fecha_incidente).
+    columns:
+      - name: fecha_incidente
+        description: "Datetime del evento de velocidad excesiva (log_datetime de geotab_log_record)"
+      - name: device_id
+        description: "Identificador del dispositivo Geotab que registró el evento"
+      - name: device_name
+        description: "Nombre del dispositivo"
+      - name: device_comment
+        description: "Comentario asociado al dispositivo"
+      - name: latitud_incidente
+        description: "Latitud geográfica del evento (FLOAT)"
+      - name: longitud_incidente
+        description: "Longitud geográfica del evento (FLOAT)"
+      - name: velocidad_kmh
+        description: "Velocidad registrada en km/h al momento del evento (siempre > 80)"
+      - name: exceso_kmh
+        description: "Kilómetros por hora sobre el límite de 80 km/h (velocidad_kmh - 80)"
+      - name: fecha
+        description: "Fecha del incidente sin hora (DATE)"
+      - name: hora_del_dia
+        description: "Hora del día del incidente (0-23, extraída con DATEPART HOUR)"
+      - name: severidad
+        description: >
+          Clasificación del incidente por rango de velocidad:
+          'Leve (80-99 km/h)', 'Moderado (100-119 km/h)', 'Severo (120+ km/h)'
+      - name: color_mapa
+        description: >
+          Color hexadecimal para visualización cartográfica del incidente según severidad:
+          '#FFC107' (leve/amarillo), '#FF7043' (moderado/naranja), '#D32F2F' (severo/rojo)
+
+  - name: AMA_Geotab_GPS_Comunicacion
+    description: >
+      Snapshot diario del estado de comunicación y actividad GPS de cada dispositivo activo.
+      Grain: (device_id, snapshot_date). Una fila por dispositivo vigente por día.
+      Los campos rolling (viajes_ultimos_30_dias, km_ultimos_30_dias, etc.) se calculan
+      siempre desde el histórico completo hasta la fecha del snapshot.
+      Idempotente: el pre_hook elimina el snapshot del día antes de re-insertar.
+      Soporta backfill via var gps_backfill_date.
+    columns:
+      - name: snapshot_date
+        description: "Fecha del snapshot (DATE). Clave de partición para el pre_hook de idempotencia"
+      - name: device_id
+        description: "Identificador único del dispositivo Geotab"
+      - name: device_name
+        description: "Nombre del dispositivo"
+      - name: device_comment
+        description: "Comentario libre del dispositivo"
+      - name: ultima_fecha_de_comunicacion
+        description: "Último datetime de comunicación registrado en geotab_device_status_info"
+      - name: is_device_communicating
+        description: "BIT: 1 si el dispositivo reporta estar comunicando al momento del snapshot"
+      - name: dias_sin_comunicacion
+        description: "Días transcurridos entre ultima_fecha_de_comunicacion y la fecha del snapshot"
+      - name: ultima_posicion_gps
+        description: "Datetime del último ping GPS registrado en geotab_log_record"
+      - name: dias_sin_gps
+        description: "Días transcurridos entre ultima_posicion_gps y la fecha del snapshot"
+      - name: esta_conduciendo
+        description: "BIT: 1 si el dispositivo está marcado como en movimiento (is_driving)"
+      - name: velocidad_actual_kmh
+        description: "Velocidad reportada al momento del snapshot según geotab_device_status_info"
+      - name: ultima_latitud
+        description: "Última latitud reportada por el dispositivo"
+      - name: ultima_longitud
+        description: "Última longitud reportada por el dispositivo"
+      - name: ultimo_viaje
+        description: "Datetime del trip_start más reciente del dispositivo"
+      - name: dias_sin_viaje
+        description: "Días transcurridos entre ultimo_viaje y la fecha del snapshot"
+      - name: viajes_ultimos_7_dias
+        description: "Count de viajes iniciados en los 7 días anteriores al snapshot"
+      - name: viajes_ultimos_30_dias
+        description: "Count de viajes iniciados en los 30 días anteriores al snapshot"
+      - name: km_ultimos_30_dias
+        description: "Kilómetros recorridos en los 30 días anteriores al snapshot"
+      - name: total_pings_gps_historico
+        description: "Total histórico de registros GPS en geotab_log_record para el dispositivo"
+      - name: dispositivo_activo_desde
+        description: "Fecha de alta del dispositivo en Geotab (active_from)"
+      - name: dispositivo_activo_hasta
+        description: "Fecha de baja del dispositivo en Geotab (active_to). NULL si está vigente"
+      - name: es_dispositivo_vigente
+        description: "BIT: 1 si active_to es NULL o posterior a la fecha del snapshot"
+      - name: categoria_comunicacion
+        description: >
+          Clasificación textual del estado de comunicación del dispositivo:
+          'Comunicando', 'Sin comunicacion (hoy)', 'Sin comunicacion (1 dia)',
+          'Sin comunicacion (2-7 dias)', 'Sin comunicacion (8-30 dias)',
+          'Sin comunicacion (mas de 30 dias)', 'Sin registro de estado'
+      - name: categoria_gps
+        description: >
+          Clasificación textual del estado GPS del dispositivo:
+          'GPS activo (hoy)', 'GPS inactivo (1-7 dias)', 'GPS inactivo (8-30 dias)',
+          'GPS inactivo (mas de 30 dias)', 'Sin registros GPS'
+
+  - name: AMA_Geotab_Terminales
+    description: >
+      Fact table incremental de eventos de permanencia (dwell) en terminales AMA.
+      Grain: visita única a terminal por vehículo (device_id, route_id, stop_sequence,
+      actual_arrival_utc). Fuente: geotab_planned_vs_actual, filtrando status = 'ON_TIME'.
+      Incluye tiempo de permanencia, clasificación de cuello de botella, franja horaria,
+      y enlace al siguiente viaje dentro de las 4 horas posteriores a la salida.
+      Nota: scheduled_departure es NULL — los tiempos planificados en la fuente usan
+      valores centinela (años 1986/2050) y no son utilizables.
+      Ventana incremental: último día (pre_hook DELETE + append sobre event_date).
+    columns:
+      - name: event_date
+        description: "Fecha del evento en terminal (DATE, truncado de actual_arrival_utc)"
+      - name: entry_hour
+        description: "Hora de entrada al terminal (0-23, DATEPART HOUR de actual_arrival_utc)"
+      - name: entry_weekday
+        description: "Día de la semana de la entrada (1=Domingo … 7=Sábado, según DATEFIRST=7 de Synapse)"
+      - name: zone_id
+        description: "Identificador de la zona/terminal en Geotab (arrival_zone_id)"
+      - name: terminal_name
+        description: "Nombre de la terminal visitada (arrival_zone_name de geotab_planned_vs_actual)"
+      - name: is_central
+        description: >
+          BIT: 1 si la terminal es 'Estacion Martinez Nadal (Abordaje/Descenso), San Juan,
+          00921, Puerto Rico'. Identificador de la terminal central AMA
+      - name: vehicle_id
+        description: "ID del vehículo/dispositivo Geotab que realizó la visita (device_id)"
+      - name: vehicle_name
+        description: "Nombre del dispositivo/vehículo"
+      - name: vehicle_type
+        description: "Tipo de dispositivo según geotab_device"
+      - name: route_id
+        description: "ID de la ruta asociada al evento en terminal"
+      - name: route_name
+        description: "Nombre de la ruta"
+      - name: stop_sequence
+        description: "Número de secuencia de la parada dentro de la ruta"
+      - name: stop_name
+        description: "Nombre de la parada en la ruta"
+      - name: terminal_entry_datetime
+        description: "Datetime de entrada al terminal (actual_arrival_utc)"
+      - name: terminal_exit_datetime
+        description: "Datetime de salida del terminal (actual_departure_utc). NULL si el vehículo no ha salido"
+      - name: dwell_time_minutes
+        description: "Tiempo de permanencia en terminal en minutos (DECIMAL 10,2). NULL si no hay salida registrada"
+      - name: dwell_categoria
+        description: >
+          Clasificación del tiempo de permanencia:
+          'RAPIDO' (< 5 min), 'NORMAL' (5-15 min), 'DEMORADO' (15-30 min),
+          'CUELLO_DE_BOTELLA' (> 30 min), 'SIN_DATOS' (sin salida registrada)
+      - name: es_cuello_de_botella
+        description: "BIT: 1 si el tiempo de permanencia supera 30 minutos"
+      - name: franja_horaria
+        description: >
+          Franja horaria de entrada al terminal según la hora del día:
+          'MANANA_TEMPRANA' (5-8h), 'MANANA' (9-11h), 'MEDIODIA' (12-14h),
+          'TARDE' (15-18h), 'NOCHE' (19-22h), 'MADRUGADA' (resto)
+      - name: next_trip_id
+        description: "ID del primer viaje del vehículo dentro de las 4 horas posteriores a la salida del terminal. NULL si no hay viaje siguiente"
+      - name: next_trip_start
+        description: "Datetime de inicio del siguiente viaje. NULL si no hay viaje siguiente"
+      - name: minutos_hasta_viaje
+        description: "Minutos entre terminal_exit_datetime y next_trip_start. NULL si no hay viaje siguiente"
+      - name: departure_status
+        description: "Estado de puntualidad de la salida según geotab_planned_vs_actual (status = 'ON_TIME' para todas las filas)"
+      - name: delay_minutes
+        description: "Variación en minutos respecto al plan (variance_minutes de planned_vs_actual). DECIMAL(10,2)"
+      - name: scheduled_departure
+        description: "NULL. Los tiempos planificados en geotab_planned_vs_actual usan valores centinela (1986/2050) y no son utilizables. Placeholder para futura integración"
+      - name: event_note
+        description: "Nota del proveedor Geotab sobre el evento en terminal"
