@@ -44,6 +44,7 @@ SELECT
     event_date,
     CAST(entity_name             AS VARCHAR(255))  AS entity_name,
     CAST(domain                  AS VARCHAR(50))   AS domain,
+    CAST(source                  AS VARCHAR(50))   AS source,  -- CAMBIO 2: nueva columna source
     CAST(entity_type             AS VARCHAR(20))   AS entity_type,
     CAST(entity_base_name        AS VARCHAR(255))  AS entity_base_name,
     CAST(snapshot_file_date      AS DATE)          AS snapshot_file_date,

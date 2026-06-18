@@ -4,10 +4,20 @@
   )
 }}
 
-SELECT 'geotab'     AS domain, 24  AS expected_frequency_hrs, 'AMA Geotab API'              AS domain_description
-UNION ALL SELECT 'transdev',   24,                             'Transdev bus data'
-UNION ALL SELECT 'sonnell',    24,                             'Sonnell bus data'
-UNION ALL SELECT 'hms',        168,                            'HMS monthly trips (weekly tolerance)'
-UNION ALL SELECT 'gtfs',       168,                            'GTFS feed updates'
-UNION ALL SELECT 'ama_legacy', 24,                             'AMA legacy data'
-UNION ALL SELECT 'other',      24,                             'Other sources'
+/*
+  Domain to source mapping (CAMBIO 2):
+  - sonnel, transdev, data_legacy → korbato
+  - ama → geotab
+  - gtfs → other
+
+  Expected frequency (CAMBIO 4):
+  - korbato sources: 24 hrs
+  - geotab sources: 1 hr
+  - other sources: NULL (no SLA)
+*/
+
+SELECT 'sonnel'       AS domain, 'korbato' AS source, 24   AS expected_frequency_hrs, 'Sonnell bus data'              AS domain_description
+UNION ALL SELECT 'transdev',     'korbato',           24,                              'Transdev bus data'
+UNION ALL SELECT 'data_legacy',  'korbato',           24,                              'AMA legacy data'
+UNION ALL SELECT 'ama',          'geotab',            1,                               'AMA Geotab API'
+UNION ALL SELECT 'gtfs',         'other',             NULL,                            'GTFS feed updates'

@@ -4,6 +4,22 @@
   )
 }}
 
+/*
+  CAMBIO 1: Reclasificación de dominios
+    snapshot_sonnell       → sonnel
+    snapshot_transdev      → transdev
+    transdev               → transdev
+    ama_legacy             → data_legacy
+    snapshot_ama_legacy    → data_legacy
+    geotab                 → ama
+    other                  → gtfs
+
+  CAMBIO 2: Nueva columna source derivada del domain reclasificado
+    sonnel, transdev, data_legacy → korbato
+    ama                           → geotab
+    gtfs                          → other
+*/
+
 WITH baseline AS (
     SELECT * FROM {{ ref('int_baseline_7d') }}
 ),
@@ -16,13 +32,48 @@ errors AS (
     SELECT * FROM {{ ref('int_latest_errors') }}
 ),
 
-with_config AS (
+domain_reclassified AS (
     SELECT
         b.*,
-        ISNULL(c.expected_frequency_hrs, 24) AS expected_frequency_hrs,
-        ISNULL(c.domain_description, 'Unknown') AS domain_description
+        -- CAMBIO 1: Reclasificar domain
+        CASE
+            WHEN b.domain = 'snapshot_sonnell'       THEN 'sonnel'
+            WHEN b.domain = 'snapshot_transdev'      THEN 'transdev'
+            WHEN b.domain = 'transdev'               THEN 'transdev'
+            WHEN b.domain = 'ama_legacy'             THEN 'data_legacy'
+            WHEN b.domain = 'snapshot_ama_legacy'    THEN 'data_legacy'
+            WHEN b.domain = 'geotab'                 THEN 'ama'
+            WHEN b.domain = 'other'                  THEN 'gtfs'
+            ELSE b.domain  -- fallback para valores no mapeados (sonnell, hms, gtfs_orig, snapshot_other)
+        END AS domain_final
     FROM baseline b
-    LEFT JOIN entity_config c ON b.domain = c.domain
+),
+
+with_source AS (
+    SELECT
+        d.*,
+        -- CAMBIO 2: Derivar source del domain reclasificado
+        CASE
+            WHEN domain_final IN ('sonnel', 'transdev', 'data_legacy') THEN 'korbato'
+            WHEN domain_final = 'ama'                                  THEN 'geotab'
+            WHEN domain_final = 'gtfs'                                 THEN 'other'
+            ELSE 'other'  -- fallback
+        END AS source
+    FROM domain_reclassified d
+),
+
+with_config AS (
+    SELECT
+        ws.*,
+        -- CAMBIO 4: expected_frequency_hrs derivado de source (no de domain)
+        CASE
+            WHEN ws.source = 'korbato' THEN 24
+            WHEN ws.source = 'geotab'  THEN 1
+            ELSE NULL  -- source = 'other': no aplica SLA
+        END AS expected_frequency_hrs,
+        ISNULL(c.domain_description, 'Unknown') AS domain_description
+    FROM with_source ws
+    LEFT JOIN entity_config c ON ws.domain_final = c.domain
 ),
 
 with_errors AS (
@@ -116,7 +167,8 @@ with_health AS (
 SELECT
     event_date,
     entity_name,
-    domain,
+    domain_final         AS domain,       -- CAMBIO 1: usar domain reclasificado
+    source,                                -- CAMBIO 2: nueva columna source
     entity_type,
     entity_base_name,
     snapshot_file_date,
