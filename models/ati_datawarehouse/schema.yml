@@ -1,0 +1,167 @@
+version: 2
+
+models:
+  - name: fleet
+    description: >
+      Tabla de flotas Korbato deduplicada. Grain: fleet_key único (una fila por flota,
+      fila más reciente por _md_processed_at via staging_fleet rn=1).
+    columns:
+      - name: fleet_key
+        description: "PK — identificador único de flota"
+        tests:
+          - unique
+          - not_null
+      - name: fleet_name
+        description: "Nombre de la flota"
+        tests:
+          - not_null
+      - name: operator_id
+        description: "Identificador del operador al que pertenece la flota"
+        tests:
+          - not_null
+      - name: _md_processed_at
+        description: "Timestamp de procesamiento del archivo fuente en el data lake"
+        tests:
+          - not_null
+
+  - name: vehicle_day
+    description: >
+      Tabla de vehículos por día de servicio. Grain: vehicle_day_key único
+      (una fila por combinación vehículo-día, rn=1 del staging).
+    columns:
+      - name: vehicle_day_key
+        description: "PK — clave única de vehículo por día"
+        tests:
+          - unique
+          - not_null
+      - name: svc_date
+        description: "Fecha de servicio"
+        tests:
+          - not_null
+      - name: fleet_key
+        description: "FK a fleet.fleet_key"
+        tests:
+          - not_null
+          - relationships:
+              to: ref('fleet')
+              field: fleet_key
+      - name: vehicle_id
+        description: "Identificador del vehículo"
+        tests:
+          - not_null
+
+  - name: trip
+    description: >
+      Tabla de viajes Korbato deduplicada. Grain: trip_key único (rn=1 del staging).
+      Incremental: ventana del último día en svc_date.
+    columns:
+      - name: trip_key
+        description: "PK — clave única de viaje"
+        tests:
+          - unique
+          - not_null
+      - name: svc_date
+        description: "Fecha de servicio del viaje"
+        tests:
+          - not_null
+      - name: vehicle_day_key
+        description: "FK a vehicle_day.vehicle_day_key"
+        tests:
+          - not_null
+          - relationships:
+              to: ref('vehicle_day')
+              field: vehicle_day_key
+      - name: route_id
+        description: "Identificador de ruta"
+        tests:
+          - not_null
+
+  - name: visit
+    description: >
+      Tabla de visitas a paradas por viaje. Grain: visit_key único (rn=1 del staging).
+      Incremental: ventana del último día en svc_date.
+    columns:
+      - name: visit_key
+        description: "PK — clave única de visita"
+        tests:
+          - unique
+          - not_null
+      - name: svc_date
+        description: "Fecha de servicio"
+        tests:
+          - not_null
+      - name: trip_key
+        description: "FK a trip.trip_key"
+        tests:
+          - not_null
+          - relationships:
+              to: ref('trip')
+              field: trip_key
+      - name: stop_id
+        description: "Identificador de la parada visitada"
+        tests:
+          - not_null
+
+  - name: pattern
+    description: >
+      Tabla de patrones de rutas Korbato. Grain: pattern_id único
+      (una fila por patrón, rn=1 del staging).
+    columns:
+      - name: pattern_id
+        description: "PK — identificador único del patrón de ruta"
+        tests:
+          - unique
+          - not_null
+      - name: route_id
+        description: "Ruta a la que pertenece el patrón"
+        tests:
+          - not_null
+
+  - name: pattern_stop
+    description: >
+      Paradas que componen cada patrón de ruta. Grain: (pattern_id, stop_seq).
+      Una fila por parada dentro de cada patrón (rn=1 del staging).
+    columns:
+      - name: pattern_id
+        description: "PK compuesta: FK a pattern.pattern_id"
+        tests:
+          - not_null
+          - relationships:
+              to: ref('pattern')
+              field: pattern_id
+      - name: stop_seq
+        description: "PK compuesta: posición ordinal de la parada dentro del patrón"
+        tests:
+          - not_null
+      - name: stop_id
+        description: "Identificador de la parada"
+        tests:
+          - not_null
+    tests:
+      - dbt_utils.unique_combination_of_columns:
+          combination_of_columns:
+            - pattern_id
+            - stop_seq
+
+  - name: Trip_Sch_Match
+    description: >
+      Matcheo de viajes reales (Korbato) contra trips programados (GTFS).
+      Grain: (svc_date, trip_key) — un registro de matcheo por viaje y día.
+      Incremental: ventana del último día en svc_date.
+    columns:
+      - name: svc_date
+        description: "PK compuesta: fecha de servicio"
+        tests:
+          - not_null
+      - name: trip_key
+        description: "PK compuesta: FK a trip.trip_key"
+        tests:
+          - not_null
+          - relationships:
+              to: ref('trip')
+              field: trip_key
+    tests:
+      - dbt_utils.unique_combination_of_columns:
+          combination_of_columns:
+            - svc_date
+            - trip_key
