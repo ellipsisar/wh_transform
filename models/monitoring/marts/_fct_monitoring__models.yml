@@ -61,19 +61,28 @@ models:
       - name: entity_name
         description: >
           Nombre de la entidad/notebook. Ejemplos: geotab_device, tdev_trip.
+          Nota: entity_name puede repetirse si hay diferentes dominios (grain correcto incluye domain).
         data_type: varchar(255)
         tests:
           - not_null
       - name: domain
         description: >
-          Dominio al que pertenece la entidad.
-          Valores recurring: geotab, transdev, sonnell, hms, gtfs, ama_legacy, other.
-          Valores snapshot: snapshot_sonnell, snapshot_transdev, snapshot_ama_legacy, snapshot_other.
+          Dominio al que pertenece la entidad (valores reclasificados).
+          Valores permitidos: sonnel, transdev, data_legacy, ama, gtfs.
         data_type: varchar(50)
         tests:
           - not_null
           - accepted_values:
-              values: ['geotab', 'transdev', 'sonnell', 'hms', 'gtfs', 'ama_legacy', 'other', 'snapshot_sonnell', 'snapshot_transdev', 'snapshot_ama_legacy', 'snapshot_other']
+              values: ['sonnel', 'transdev', 'data_legacy', 'ama', 'gtfs']
+      - name: source
+        description: >
+          Sistema fuente que alimenta el dominio.
+          Valores: korbato (sonnel/transdev/data_legacy), geotab (ama), other (gtfs).
+        data_type: varchar(50)
+        tests:
+          - not_null
+          - accepted_values:
+              values: ['korbato', 'geotab', 'other']
       - name: entity_type
         description: Tipo de archivo (recurring o snapshot)
         data_type: varchar(20)
@@ -240,13 +249,14 @@ models:
         data_type: int
       - name: expected_frequency_hrs
         description: >
-          Frecuencia esperada de ejecucion en horas, segun configuracion del dominio.
-          Ej: 24 (diario), 168 (semanal).
+          Frecuencia esperada de ejecucion en horas, derivada del source.
+          korbato: 24 hrs, geotab: 1 hr, other: NULL (no SLA).
         data_type: int
         tests:
-          - not_null
           - dbt_utils.expression_is_true:
               expression: "> 0"
+              config:
+                where: "expected_frequency_hrs IS NOT NULL"
       - name: is_recurring
         description: >
           1 si la entidad es de tipo recurring (expected_frequency_hrs IS NOT NULL).

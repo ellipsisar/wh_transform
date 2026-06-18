@@ -28,6 +28,8 @@ FROM (
         entity_name,
 
         -- Domain classification: recurring files by prefix, snapshots by entity_base_name
+        -- CAMBIO 1: Reclasificación de dominios aplicada en capa de transformación (ver mapeo en int_health_metrics)
+        -- Valores originales mantenidos aquí; el mapeo final se aplica downstream.
         CASE
             -- Recurring files: classify by filename prefix
             WHEN entity_type = 'recurring' THEN
