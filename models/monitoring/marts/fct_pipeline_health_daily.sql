@@ -1,7 +1,6 @@
 {{
   config(
     materialized         = 'incremental',
-    alias                = 'fct_pipeline_health_daily_v2',
     incremental_strategy = 'append',
     dist                 = 'ROUND_ROBIN',
     index                = 'CLUSTERED COLUMNSTORE INDEX',
