@@ -142,17 +142,14 @@ with_health AS (
             (30 - (is_volume_anomaly * 10) - (is_zero_records * 10) - (is_high_failure_rate * 10))
         AS DECIMAL(5, 2)) AS health_score,
 
-        -- SLA compliance (NULL for snapshots)
+        -- SLA compliance: aplica a recurring Y snapshot (snapshots korbato tienen SLA de 24h)
         CASE
-            WHEN entity_type = 'snapshot'                                THEN CAST(NULL AS BIT)
             WHEN last_success_datetime IS NULL                           THEN CAST(0 AS BIT)
             WHEN hours_since_success_eod <= expected_frequency_hrs       THEN CAST(1 AS BIT)
             ELSE CAST(0 AS BIT)
         END AS sla_met,
 
         CASE
-            WHEN entity_type = 'snapshot'
-                THEN 'N/A - snapshot file'
             WHEN last_success_datetime IS NULL
                 THEN 'No successful execution recorded'
             WHEN hours_since_success_eod > expected_frequency_hrs
