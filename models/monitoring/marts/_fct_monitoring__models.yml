@@ -269,13 +269,13 @@ models:
       - name: sla_met
         description: >
           1 si hours_since_success <= expected_frequency_hrs.
-          NULL para archivos snapshot (no aplica SLA).
+          Aplica a recurring y snapshot (snapshots korbato tienen SLA de 24h).
+          0 si no hubo ejecucion exitosa o se supero el umbral.
         data_type: bit
         tests:
+          - not_null
           - accepted_values:
               values: [0, 1]
-              config:
-                where: "entity_type = 'recurring'"
       - name: sla_breach_reason
         description: Descripcion del incumplimiento de SLA (NULL si sla_met = 1)
         data_type: varchar(255)
