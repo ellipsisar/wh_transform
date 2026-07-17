@@ -278,6 +278,8 @@ All tables use `ROUND_ROBIN` distribution and `CLUSTERED COLUMNSTORE INDEX`.
 
 4. **MU route stats as no-ops**: SP2 attempts to update RevenueMiles/RevenueHours for MU routes, but the `GroupId = Subsystem` join fails ('MU' != 'MU - 20'). This is a known SP behavior that we replicate by omitting those UPDATEs.
 
-5. **`IsActive` filter difference**: SP1 (daily) has `IsActive` commented out on SonnellRates for MU. SP3 (reprocess) has `IsActive = 1`. This difference is preserved in the dbt model.
+5. **`IsActive` filter difference (invoice model, MU block only)**: the `fct_sonnell_invoice_totals` MU recalculation block (raw `SonnellDailySummary` × `SonnellRates`) does not filter `IsActive` in daily mode, matching SP1. This is scoped to that block only — see bug fix note below.
 
 6. **Separate macros for reprocess**: `run-operation` macros provide a CLI-friendly interface for ad-hoc reprocessing without requiring `--vars` flags. They use `api.Relation.create()` since `ref()` and `source()` are unavailable in run-operation context.
+
+7. **`IsActive = 1` on `fct_sonnell_subsystem_cost` rate join (bug fix)**: all three execution modes of `fct_sonnell_subsystem_cost` now filter `SonnellRates.IsActive = 1`. The daily-incremental and full-refresh blocks were missing this filter (only the reprocess block had it), which allowed overlapping active/inactive rate rows for the same `GroupId` + date range to fan out the `LEFT JOIN`, producing duplicate `DailySummaryId` rows with different rates. This propagated into duplicate `Regular MB/TC` invoice lines in `fct_sonnell_invoice_totals` (same period/version, different `MilesRate`/`HoursRate`) whenever `SonnellRates` had such overlaps — e.g. July 2026 MB rates. Fixed by adding `AND r.IsActive = 1` to both blocks, consistent with the reprocess block's existing behavior. This is separate from decision #5 above (the invoice model's MU block), which was intentionally left as-is.

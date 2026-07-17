@@ -89,7 +89,11 @@
     The pre_hook only marks old versions when the replacement hasn't been inserted yet.
 
   RATE/AMOUNT LOGIC:
-    Rates and amounts are computed inline via LEFT JOIN with SonnellRates.
+    Rates and amounts are computed inline via LEFT JOIN with SonnellRates,
+    filtered to IsActive=1 in all three modes. Without this filter, overlapping
+    active/inactive rate rows for the same GroupId + date range fan out the join,
+    producing duplicate DailySummaryId rows with different rates — which then
+    propagate into duplicate invoice lines in fct_sonnell_invoice_totals.
     post_hooks act as a safety net to back-fill rows whose rate was missing at
     insert time but was added to SonnellRates later (replicates SP Steps 3 & 4).
 #}
@@ -115,6 +119,7 @@ WITH source_data AS (
     LEFT JOIN {{ ref('stg_sonnell_rates') }} AS r
         ON s.Subsystem = r.GroupId
         AND s.ServiceDate BETWEEN r.StartDate AND r.EndDate
+        AND r.IsActive = 1
 
 )
 
@@ -185,7 +190,9 @@ WHERE MONTH(s.ServiceDate) = {{ var('sonnell_reprocess_month') }}
 {# ── DAILY INCREMENTAL (SP1): insert any DailySummary records not yet in target.           ── #}
 {# ── pre_hook already set CurrentVersion=0 on superseded records.                          ── #}
 {# ── NOT EXISTS (ServiceDate, Version) is the primary dedup — no date restriction needed.  ── #}
-{# ── No IsActive filter on rates — matches SP1.                                           ── #}
+{# ── IsActive=1 on rates — prevents fan-out when SonnellRates has overlapping active/       ── #}
+{# ── inactive rows for the same GroupId + date range (was missing; caused duplicate         ── #}
+{# ── DailySummaryId rows with different rates, propagating into duplicate invoice lines).   ── #}
 
 SELECT
     CAST(s.Id AS INT)                                                             AS Id,
@@ -211,6 +218,7 @@ FROM {{ ref('stg_sonnell_daily_summary') }} AS s
 LEFT JOIN {{ ref('stg_sonnell_rates') }} AS r
     ON s.Subsystem = r.GroupId
     AND s.ServiceDate BETWEEN r.StartDate AND r.EndDate
+    AND r.IsActive = 1
 WHERE NOT EXISTS (
         SELECT 1 FROM {{ this }} AS t
         WHERE t.ServiceDate = s.ServiceDate
