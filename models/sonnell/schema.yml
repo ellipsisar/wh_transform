@@ -125,6 +125,14 @@ models:
       Produces 3 line types per month: Regular MB/TC, Regular MU per route,
       and Offset per subsystem. Post-hooks populate InvoiceID, stats, and
       persist the 4% offset cap audit data to SonnellOffsetApplied.
+    tests:
+      - dbt_utils.unique_combination_of_columns:
+          combination_of_columns:
+            - Year
+            - Month
+            - Subsystem
+            - Type
+            - Version
     columns:
       - name: Year
         description: "Calendar year of the invoice period"
