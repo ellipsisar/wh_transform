@@ -17,10 +17,10 @@ SELECT
         T.svc_date AS ServiceDate,
         T.route_id AS Route,
         CASE WHEN T.svc_date >= '2025-11-16' AND F.operator_id='TD' THEN 'SN' 
-        ELSE F.operator_id END AS OperatorFleetId,
-        count(distinct T.trip_key) AS OperatedTripsCount,
-        count(distinct TM.trip_key) AS PlannedTripsCount,
-        count(distinct CASE WHEN TM.sch_trip_id IS NULL THEN T.trip_key ELSE NULL END) as CancelledTripsCount,
+        ELSE F.operator_id END AS OperatorFleetId, 
+        count(distinct T.trip_key) AS PlannedTripsCount,
+        count(distinct TM.trip_key) AS CancelledTripsCount,
+        count(distinct CASE WHEN TM.sch_trip_id IS NULL THEN T.trip_key ELSE NULL END) as  OperatedTripsCount,
         count(distinct CASE 
             WHEN TM.sch_trip_id IS NOT NULL 
                 AND (DATEDIFF(minute, TM.arrival_planned, TM.arrival_real) >= 5 
