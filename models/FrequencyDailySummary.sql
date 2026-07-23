@@ -16,7 +16,8 @@ GROUP BY svc_date, fleet_key
 SELECT 
         T.svc_date AS ServiceDate,
         T.route_id AS Route,
-        F.operator_id AS OperatorFleetId,
+        CASE WHEN T.svc_date >= '2025-11-16' AND F.operator_id='TD' THEN 'SN' 
+        ELSE F.operator_id END AS OperatorFleetId,
         count(distinct T.trip_key) AS OperatedTripsCount,
         count(distinct TM.trip_key) AS PlannedTripsCount,
         count(distinct CASE WHEN TM.sch_trip_id IS NULL THEN T.trip_key ELSE NULL END) as CancelledTripsCount,
