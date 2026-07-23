@@ -1,0 +1,35 @@
+version: 2
+
+models:
+  - name: trip_gtfs_match
+    description: >
+      Modelo ephemeral que matchea viajes operados (Korbato) contra su horario
+      planificado en el itinerario GTFS estático. Cadena de joins: visit -> trip
+      (para obtener svc_date confiable) -> trip_sch_match (por svc_date + trip_key)
+      -> gtfs_stop_times (por sch_trip_id = trip_id y seq_in_pattern = stop_sequence).
+      Es una dependencia dura de FrequencyDailySummary pese a vivir en models/temp/ —
+      no es un modelo exploratorio, aunque su ubicación sugiera lo contrario.
+      Nota histórica: hasta 2026-07 este modelo usaba visit.svc_date (en vez de
+      trip.svc_date) en el join contra trip_sch_match; una corrupción de datos en
+      visit.svc_date (fechas centinela en el año 6100) hacía que el join casi nunca
+      matcheara, dejando CancelledTripsCount = OperatedTripsCount y el resto de las
+      métricas de itinerario en 0 en FrequencyDailySummary.
+    columns:
+      - name: trip_key
+        description: "Identificador de viaje operado (Korbato), FK a trip.trip_key"
+        tests:
+          - not_null
+      - name: svc_date
+        description: "Fecha de servicio del viaje, tomada de trip.svc_date (no de visit.svc_date, que tiene corrupción conocida)"
+        tests:
+          - not_null
+      - name: arrival_real
+        description: "Hora real de arribo (de visit.arrival)"
+      - name: departure_real
+        description: "Hora real de salida (de visit.departure)"
+      - name: sch_trip_id
+        description: "trip_id del itinerario GTFS matcheado. NULL si el viaje no tiene contraparte planificada"
+      - name: arrival_planned
+        description: "Hora de arribo planificada según gtfs_stop_times.arrival_time"
+      - name: departure_planned
+        description: "Hora de salida planificada según gtfs_stop_times.departure_time"

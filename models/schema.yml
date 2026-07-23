@@ -44,6 +44,51 @@ models:
         tests:
           - not_null
 
+  - name: FrequencyDailySummary
+    description: >
+      Resumen diario de cumplimiento de itinerario por ruta/operador, migrado desde Korbato.
+      Grain: (ServiceDate, Route, OperatorFleetId). Cruza trip/vehicle_day/fleet contra
+      trip_gtfs_match (ephemeral, models/temp/) para clasificar cada viaje como planificado,
+      cancelado, a tiempo o demorado según el itinerario GTFS.
+      Full table rebuild en cada run (sin lógica incremental).
+    columns:
+      - name: ServiceDate
+        description: "Fecha de servicio"
+        tests:
+          - not_null
+      - name: Route
+        description: "Identificador de ruta (route_id de Korbato)"
+        tests:
+          - not_null
+      - name: OperatorFleetId
+        description: "Identificador del operador/flota (operator_id de fleet)"
+        tests:
+          - not_null
+      - name: OperatedTripsCount
+        description: "Cantidad de viajes distintos operados (trip_key de la tabla trip) para la ruta/fecha"
+      - name: PlannedTripsCount
+        description: "Cantidad de viajes con match en el itinerario GTFS (trip_gtfs_match.sch_trip_id no nulo)"
+      - name: CancelledTripsCount
+        description: "Cantidad de viajes operados sin match en el itinerario GTFS (sch_trip_id nulo)"
+      - name: DelayedTripsCount
+        description: "Viajes planificados con demora >= 5 min en arribo o salida real vs. planificado"
+      - name: OnTimeDepartureCount
+        description: "Viajes planificados con salida real dentro de los 5 min de la salida planificada"
+      - name: OnTimeArrivalCount
+        description: "Viajes planificados con arribo real dentro de los 5 min del arribo planificado"
+      - name: DelayedDepartureCount
+        description: "Viajes planificados con salida real demorada >= 5 min vs. la planificada"
+      - name: DelayedArrivalCount
+        description: "Viajes planificados con arribo real demorado >= 5 min vs. el planificado"
+      - name: ExecutedPlannedTripsCount
+        description: "Viajes operados que sí tenían contraparte planificada en el itinerario GTFS"
+      - name: VehiclesOperatedCount
+        description: "Cantidad de vehículos distintos que operaron la ruta en la fecha"
+      - name: TotalVehiclesCount
+        description: "Cantidad total de vehículos de la flota ese día (independiente de la ruta)"
+      - name: AverageDelayMinutes
+        description: "Promedio de minutos de demora (el mayor entre demora de arribo y de salida) sobre viajes planificados"
+
   - name: fct_route_scd
     description: >
       SCD Type 2 para la dimensión de rutas. Registra el historial de cambios de nombre
